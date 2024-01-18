@@ -238,7 +238,9 @@ class LanguagePairDataset(FairseqDataset):
         if tgt is not None:
             assert len(src) == len(
                 tgt
-            ), "Source and target must contain the same number of examples"
+            ), "Source{}{} and target{}{} must contain the same number of examples".format(
+                len(src), src_lang_id, len(tgt), tgt_lang_id
+            )
         self.src = src
         self.tgt = tgt
         self.src_sizes = np.array(src_sizes)

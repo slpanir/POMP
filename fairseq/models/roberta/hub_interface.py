@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from fairseq import utils
 from fairseq.data import encoders
+import os
 
 
 class RobertaHubInterface(nn.Module):
@@ -24,8 +25,10 @@ class RobertaHubInterface(nn.Module):
         self.model = model
 
         from omegaconf import OmegaConf
-        bpe_set = OmegaConf.create({'sentencepiece_model':'/path/to/your/work/location/models/xlmrL_base/sentencepiece.bpe.model', '_name':'sentencepiece'})
-        
+        # bpe_set = OmegaConf.create({'sentencepiece_model':'/path/to/your/work/location/models/xlmrL_base/sentencepiece.bpe.model', '_name':'sentencepiece'})
+        bpe_set = OmegaConf.create(
+            {'sentencepiece_model': os.path.join(cfg.model.data, 'sentencepiece.bpe.model'),
+             '_name': 'sentencepiece'})
         self.bpe = encoders.build_bpe(bpe_set)
 
         # this is useful for determining the device

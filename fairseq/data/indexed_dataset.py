@@ -102,6 +102,7 @@ def read_longs(f, n):
 def write_longs(f, a):
     f.write(np.array(a, dtype=np.int64))
 
+np.float = float
 
 _code_to_dtype = {
     1: np.uint8,

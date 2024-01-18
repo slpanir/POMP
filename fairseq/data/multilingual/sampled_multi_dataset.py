@@ -217,7 +217,14 @@ class SampledMultiDataset(FairseqDataset):
         virtual_sizes_per_dataset = np.array(virtual_sizes_per_dataset, np.int64)
         cumulative_sizes = np.cumsum(virtual_sizes_per_dataset)
         assert sum(virtual_sizes_per_dataset) == virtual_size
-        assert cumulative_sizes[-1] == virtual_size
+        logger.info(f"cumulative_sizes:{cumulative_sizes}, virtual_size:{virtual_size}, split:{self.split}")
+        assert cumulative_sizes[-1] == virtual_size, self.split  # si-zh de-en
+        # try:
+        #     assert cumulative_sizes[-1] == virtual_size, self.split  # si-zh de-en
+        # except:
+        #     print(cumulative_sizes, virtual_size, self.split)
+        #     # 终止程序
+        #     exit()
         if virtual_size < sum(sizes):
             logger.warning(
                 f"virtual data size ({virtual_size}) is less than real data size ({sum(sizes)})."

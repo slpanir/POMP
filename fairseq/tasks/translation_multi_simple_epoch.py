@@ -109,7 +109,11 @@ class TranslationMultiSimpleEpochTask(LegacyFairseqTask):
         if training:
             self.lang_pairs = args.lang_pairs
         else:
-            self.lang_pairs = ["{}-{}".format(args.source_lang, args.target_lang)]
+            # psl
+            if hasattr(args, 'encoder_out_only') and self.args.encoder_out_only:
+                self.lang_pairs = args.lang_pairs
+            else:
+                self.lang_pairs = ["{}-{}".format(args.source_lang, args.target_lang)]
         # eval_lang_pairs for multilingual translation is usually all of the
         # lang_pairs. However for other multitask settings or when we want to
         # optimize for certain languages we want to use a different subset. Thus
@@ -360,6 +364,41 @@ class TranslationMultiSimpleEpochTask(LegacyFairseqTask):
                     if tgt_langtok_spec
                     else self.target_dictionary.eos(),
                 )
+
+    # psl
+    def encoder_output_step(
+        self, generator, models, sample, prefix_tokens=None, constraints=None
+    ):
+        with torch.no_grad():
+            _, tgt_langtok_spec = self.args.langtoks["main"] if 'main' in self.args.langtoks else None, None
+            if not self.args.lang_tok_replacing_bos_eos:
+                if prefix_tokens is None and tgt_langtok_spec:
+                    tgt_lang_tok = self.data_manager.get_decoder_langtok(
+                        self.args.target_lang, tgt_langtok_spec
+                    )
+                    src_tokens = sample["net_input"]["src_tokens"]
+                    bsz = src_tokens.size(0)
+                    prefix_tokens = (
+                        torch.LongTensor([[tgt_lang_tok]]).expand(bsz, 1).to(src_tokens)
+                    )
+                return generator.get_encoder_output(
+                    models,
+                    sample,
+                    prefix_tokens=prefix_tokens,
+                    constraints=constraints,
+                )
+            else:
+                return generator.get_encoder_output(
+                    models,
+                    sample,
+                    prefix_tokens=prefix_tokens,
+                    bos_token=self.data_manager.get_decoder_langtok(
+                        self.args.target_lang, tgt_langtok_spec
+                    )
+                    if tgt_langtok_spec
+                    else self.target_dictionary.eos(),
+                )
+
 
     def get_pair_bleu(self, logging_outputs, pair):
         def sum_logs(key):

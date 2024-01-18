@@ -372,7 +372,20 @@ class MultilingualDatasetManager(object):
                 {x for p in args.lang_pairs + extra_lang_pairs for x in p.split("-")}
             )
         else:
-            langs_to_load_dicts = sorted([args.source_lang, args.target_lang])
+            # psl
+            if hasattr(args, 'encoder_out_only') and args.encoder_out_only:
+                extra_lang_pairs = (
+                    list(
+                        {p for _, v in args.extra_lang_pairs.items() for p in v.split(",")}
+                    )
+                    if args.extra_lang_pairs
+                    else []
+                )
+                langs_to_load_dicts = sorted(
+                    {x for p in args.lang_pairs + extra_lang_pairs for x in p.split("-")}
+                )
+            else:
+                langs_to_load_dicts = sorted([args.source_lang, args.target_lang])
 
         
         dicts = OrderedDict()
@@ -457,6 +470,12 @@ class MultilingualDatasetManager(object):
         filename = os.path.join(data_path, "{}.{}-{}.{}".format(split, src, tgt, lang))
         return indexed_dataset.dataset_exists(filename, impl=dataset_impl)
 
+    # psl
+    @classmethod
+    def split_exists_v2(cls, split, src, tgt, lang, data_path, dataset_impl):
+        filename = os.path.join(data_path, "{}.{}-{}.{}".format(split, src, tgt, lang))
+        return indexed_dataset.dataset_exists(filename, impl=dataset_impl)
+
     def load_lang_dataset(
         self,
         data_path,
@@ -481,6 +500,8 @@ class MultilingualDatasetManager(object):
             split_k = split + (str(k) if k > 0 else "")
 
             # infer langcode
+            # if self.args.encoder_out_only:
+            #     if self.split_exists_v2()
             if self.split_exists(split_k, src, tgt, src, data_path, dataset_impl):
                 prefix = os.path.join(data_path, "{}.{}-{}.".format(split_k, src, tgt))
             elif self.split_exists(split_k, tgt, src, src, data_path, dataset_impl):
@@ -772,6 +793,7 @@ class MultilingualDatasetManager(object):
         enable_lang_ids = self.args.enable_lang_ids
         lang_dictionary = self.lang_dict
         src_langtok_spec, tgt_langtok_spec = extra_kwargs["langtok_spec"]
+        data_type = extra_kwargs["data_type"]  # psl
 
         src_langtok = self.get_encoder_langtok(src, tgt, src_langtok_spec)
         tgt_langtok = self.get_decoder_langtok(tgt, tgt_langtok_spec)
@@ -785,7 +807,8 @@ class MultilingualDatasetManager(object):
         else:
             src_lang = src 
             tgt_lang = tgt
-
+        if hasattr(self.args, 'encoder_out_only') and self.args.encoder_out_only:
+            split = data_type
         langpair_ds = self.load_langpair_dataset(
             data_path,
             split,
@@ -891,6 +914,24 @@ class MultilingualDatasetManager(object):
                 shards[direction] += 1
         return shards
 
+    # psl
+    @classmethod
+    def _get_shard_num_dict_v2(cls, pair, paths):
+        shards = defaultdict(int)
+        for path in paths:
+            files = PathManager.ls(path)
+            directions = set()
+            for f in files:
+                if f.endswith(".idx"):
+                    direction = f.split(".")[-3]
+                    if direction == pair:
+                    # idx files of the form "{split}.{src}-{tgt}.{lang}.idx"
+                        directions.add(direction)
+            for direction in directions:
+                shards[direction] += 1
+        return shards
+
+
     def get_split_num_data_shards(self, split):
         if split in self._num_shards_dict:
             return self._num_shards_dict[split]
@@ -901,7 +942,11 @@ class MultilingualDatasetManager(object):
             if data_category not in lang_pairs:
                 continue
             paths = utils.split_paths(paths)
-            shards_dict = self._get_shard_num_dict(split, paths)
+            # psl
+            if hasattr(self.args, 'encoder_out_only') and self.args.encoder_out_only:
+                shards_dict = self._get_shard_num_dict_v2(split, paths)
+            else:
+                shards_dict = self._get_shard_num_dict(split, paths)
             lang_dirs = [lang_pair.split("-") for lang_pair in lang_pairs[data_category]]
             lang_dirs = [x if len(x) > 1 else (x[0], x[0]) for x in lang_dirs]
             for src, tgt in lang_dirs:
@@ -934,7 +979,7 @@ class MultilingualDatasetManager(object):
         path = paths[self.get_shard_id(num_shards, epoch, shard_epoch)]
         return path
 
-    def get_split_data_param_list(self, split, epoch, shard_epoch=None):
+    def get_split_data_param_list(self, split, epoch, shard_epoch=None, **kwargs):
         # TODO: to extend with extra datasets and keys and loop over different shard data paths
         param_list = []
         data_paths, lang_pairs = self.get_data_paths_and_lang_pairs(split)
@@ -981,6 +1026,9 @@ class MultilingualDatasetManager(object):
                             "tgt_dict": self.dicts[tgt],
                             "data_category": data_category,
                             "langtok_spec": lang_tok_spec,
+                            "data_type": kwargs["data_type"]  # psl
+                            if "data_type" in kwargs  # psl
+                            else None,  # psl
                         }
                     )
                 except:
@@ -1062,7 +1110,7 @@ class MultilingualDatasetManager(object):
     def load_split_datasets(
         self, split, training, epoch=1, combine=False, shard_epoch=None, **kwargs
     ):
-        data_param_list = self.get_split_data_param_list(split, epoch, shard_epoch=shard_epoch)
+        data_param_list = self.get_split_data_param_list(split, epoch, shard_epoch=shard_epoch, **kwargs)
         langpairs_sharing_datasets = (
             {} if self.args.enable_reservsed_directions_shared_datasets else None
         )

@@ -550,6 +550,87 @@ class SequenceGenerator(nn.Module):
             )
         return finalized
 
+    # psl
+    @torch.no_grad()
+    def get_encoder_output(self, models, sample: Dict[str, Dict[str, Tensor]], **kwargs):
+        """Generate translations. Match the api of other fairseq generators.
+        Args:
+            models (List[~fairseq.models.FairseqModel]): ensemble of models
+            sample (dict): batch
+            prefix_tokens (torch.LongTensor, optional): force decoder to begin
+                with these tokens
+            constraints (torch.LongTensor, optional): force decoder to include
+                the list of constraints
+            bos_token (int, optional): beginning of sentence token
+                (default: self.eos)
+        """
+        return self._get_encoder_output(sample, **kwargs)
+
+    # psl
+    def _get_encoder_output(
+            self,
+            sample: Dict[str, Dict[str, Tensor]],
+            prefix_tokens: Optional[Tensor] = None,
+            constraints: Optional[Tensor] = None,
+            bos_token: Optional[int] = None,
+    ):
+        net_input = sample["net_input"]
+
+        if "src_tokens" in net_input:
+            src_tokens = net_input["src_tokens"]
+            # length of the source text being the character length except EndOfSentence and pad
+            src_lengths = (
+                (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
+            )
+        elif "source" in net_input:
+            src_tokens = net_input["source"]
+            src_lengths = (
+                net_input["padding_mask"].size(-1) - net_input["padding_mask"].sum(-1)
+                if net_input["padding_mask"] is not None
+                else torch.tensor(src_tokens.size(-1)).to(src_tokens)
+            )
+        else:
+            raise Exception("expected src_tokens or source in net input")
+
+        src_lang_id = int(sample['net_input']['src_lang_id'][0]) if 'src_lang_id' in sample[
+            'net_input'].keys() else None,
+        tgt_lang_id = int(sample['net_input']['tgt_lang_id'][0]) if 'tgt_lang_id' in sample[
+            'net_input'].keys() else None,
+
+        # bsz: total number of sentences in beam
+        # Note that src_tokens may have more than 2 dimenions (i.e. audio features)
+        bsz, src_len = src_tokens.size()[:2]
+        beam_size = self.beam_size
+
+        if constraints is not None and not self.search.supports_constraints:
+            raise NotImplementedError(
+                "Target-side constraints were provided, but search method doesn't support them"
+            )
+
+        # Initialize constraints, when active
+        self.search.init_constraints(constraints, beam_size)
+
+        max_len: int = -1
+        if self.match_source_len:
+            max_len = src_lengths.max().item()
+        else:
+            max_len = min(
+                int(self.max_len_a * src_len + self.max_len_b),
+                # exclude the EOS marker
+                self.model.max_decoder_positions() - 1,
+            )
+        assert (
+                self.min_len <= max_len
+        ), "min_len cannot be larger than max_len, please adjust these!"
+        # compute the encoder output for each beam
+        encoder_outs = self.model.forward_encoder(net_input)
+
+        # ensure encoder_outs is a List.
+        assert encoder_outs is not None
+
+        return encoder_outs
+
+
     def _prefix_tokens(
         self, step: int, lprobs, scores, tokens, prefix_tokens, beam_size: int
     ):

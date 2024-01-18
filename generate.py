@@ -195,6 +195,13 @@ def _main(cfg: DictConfig, output_file):
             constraints = sample["constraints"]
 
         gen_timer.start()
+        encoder_out = task.encoder_output_step(
+            generator,
+            models,
+            sample,
+            prefix_tokens=prefix_tokens,
+            constraints=constraints,
+        )
         hypos = task.inference_step(
             generator,
             models,

@@ -6,7 +6,7 @@
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-import copy
+from copy import deepcopy
 
 import torch
 import torch.nn as nn
@@ -403,12 +403,23 @@ class XLMREncoder(FairseqEncoder):
         }
 
         x = self.xlmr.extract_features(src_tokens, extra_params= extra_params)
+        # tgt_tokens = extra_args['prev_output_tokens'] if 'prev_output_tokens' in extra_args.keys() else None  # psl
+        # y = self.xlmr.extract_features(tgt_tokens, extra_params=extra_params) if tgt_tokens is not None else None  # psl
+
+        # x2 = deepcopy(x)
+        # y2 = deepcopy(y)
         if tgt_lang_id is not None and self.use_mnmt:  ## tgt_lang_id = 0 stands for unk lang
             if hasattr(tgt_lang_id,'size'):
                 tgt_lang_id = int(tgt_lang_id[0])
-            x = self.lang_proj[tgt_lang_id](x) 
+            x = self.lang_proj[tgt_lang_id](x)  # 每个语种对应一个projection layer
+            # y = self.lang_proj[tgt_lang_id](y) if y is not None else None  # psl
+            # x2 = self.lang_proj[tgt_lang_id](x)  # 每个语种对应一个projection layer
+            # y2 = self.lang_proj[tgt_lang_id](y) if y is not None else None  # psl
 
         x = x.transpose(0,1) ## B x T x C -> T x B x C
+        # y = y.transpose(0,1) if y is not None else None  # psl
+        # x2 = x2.transpose(0,1) if x2 is not None else None ## B x T x C -> T x B x C
+        # y2 = y2.transpose(0,1) if y2 is not None else None  # psl
 
         encoder_embedding = None 
         encoder_padding_mask = src_tokens.eq(self.padding_idx)
@@ -423,6 +434,9 @@ class XLMREncoder(FairseqEncoder):
             "src_tokens": [],
             "src_lengths": [],
             "xlmr_state": [], # T x B x C
+            # "tgt_encoder_out": [y] if y is not None else [],  # psl
+            # "encoder_out_wo_lang_proj": [x2],  # T x B x C
+            # "tgt_encoder_out_wo_lang_proj": [y2] if y2 is not None else [],  # psl
         }
 
 
