@@ -25,12 +25,21 @@ import os
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 nmt_model_path = '/mnt/e/unmt/acl22-sixtp/models/x2x'
+xlmr_model_path = '/mnt/e/unmt/acl22-sixtp/models/xlmrL_base'
 nmt_model = TransformerModel.from_pretrained(
     nmt_model_path,
     checkpoint_file='x2x.pt',
     bpe='sentencepiece',
     bpe_codes=os.path.join(nmt_model_path, 'sentencepiece.bpe.model'),
     fixed_dictionary=os.path.join(nmt_model_path, 'dict.txt'),
-    xlmr_task='vanilla',
+    xlmr_modeldir=xlmr_model_path,
     eval_bleu=False,
+    enable_lang_proj=True,
+    fp16=True,
+    source_lang='zh',
+    target_lang='en',
+    enable_lang_ids=True,
+
 ).eval().to(device)
+
+translated = nmt_model.translate('hello world')

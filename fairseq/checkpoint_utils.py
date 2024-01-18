@@ -267,8 +267,10 @@ def load_checkpoint_to_cpu(path, arg_overrides=None, load_on_all_ranks=False):
             torch.distributed.barrier()
         local_path = PathManager.get_local_path(path)
 
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  # psl
     with open(local_path, "rb") as f:
-        state = torch.load(f, map_location=torch.device("cpu"))
+        # state = torch.load(f, map_location=torch.device("cpu"))
+        state = torch.load(f, map_location=device)  # psl
 
     
     if "args" in state and state["args"] is not None and arg_overrides is not None:

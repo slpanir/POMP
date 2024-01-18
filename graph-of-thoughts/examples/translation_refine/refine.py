@@ -972,6 +972,7 @@ def multi_threads_train(
         bpe='sentencepiece',
         bpe_codes=os.path.join(nmt_model_path, 'sentencepiece.bpe.model'),
         fixed_dictionary=os.path.join(nmt_model_path, 'dict.txt'),
+        device=device,
     ).eval().to(device)
 
     data_path = os.path.join(os.path.dirname(__file__), "data", "train-set4test-langs", f"{train_lang}2en")
