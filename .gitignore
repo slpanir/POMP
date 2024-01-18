@@ -137,3 +137,37 @@ experimental/*
 
 # Weights and Biases logs
 wandb/
+
+=2.0.0
+
+bpe/
+
+cuda-keyring_1.0-1_all.deb
+
+data/
+
+distributed
+
+fseq/
+
+graph-of-thoughts/examples/doc_merge/
+graph-of-thoughts/examples/keyword_counting/
+graph-of-thoughts/examples/set_intersection/
+graph-of-thoughts/examples/sorting/
+graph-of-thoughts/examples/translation_refine/clean/
+graph-of-thoughts/examples/translation_refine/data/
+graph-of-thoughts/examples/translation_refine/models/
+graph-of-thoughts/examples/translation_refine/results/
+graph-of-thoughts/graph_of_thoughts/controller/config.json
+graph-of-thoughts/paper/
+
+keys.txt
+keys2.txt
+
+models/
+nvidia_cuda_nvrtc_cu12-12.2.140-py3-none-manylinux1_x86_64.whl
+out.pdf
+prompt.txt
+raw/
+refined_translation_prompter_v2.py
+
