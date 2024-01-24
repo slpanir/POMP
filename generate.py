@@ -24,7 +24,7 @@ from fairseq.logging.meters import StopwatchMeter, TimeMeter
 from omegaconf import DictConfig
 
 
-def main(cfg: DictConfig):
+def main(cfg: DictConfig, return_models=False):
     if isinstance(cfg, Namespace):
         cfg = convert_namespace_to_omegaconf(cfg)
 
@@ -43,9 +43,9 @@ def main(cfg: DictConfig):
             "generate-{}.txt".format(cfg.dataset.gen_subset),
         )
         with open(output_path, "w", buffering=1, encoding="utf-8") as h:
-            return _main(cfg, h)
+            return _main(cfg, h, return_models=False)
     else:
-        return _main(cfg, sys.stdout)
+        return _main(cfg, sys.stdout, return_models=False)
 
 
 def get_symbols_to_strip_from_output(generator):
@@ -55,7 +55,7 @@ def get_symbols_to_strip_from_output(generator):
         return {generator.eos}
 
 
-def _main(cfg: DictConfig, output_file):
+def _main(cfg: DictConfig, output_file, return_models=False):
     logging.basicConfig(
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -399,13 +399,15 @@ def _main(cfg: DictConfig, output_file):
             file=output_file,
         )
 
+    if return_models:
+        return scorer, generator, models, task
     return scorer
 
 
 def cli_main():
     parser = options.get_generation_parser()
     args = options.parse_args_and_arch(parser)
-    main(args)
+    main(args, return_models=False)
 
 
 if __name__ == "__main__":

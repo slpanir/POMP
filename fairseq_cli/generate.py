@@ -22,9 +22,11 @@ from fairseq.dataclass.utils import convert_namespace_to_omegaconf
 from fairseq.logging import progress_bar
 from fairseq.logging.meters import StopwatchMeter, TimeMeter
 from omegaconf import DictConfig
+from io import StringIO
+from contextlib import redirect_stdout
 
 
-def main(cfg: DictConfig):
+def main(cfg: DictConfig, extra_bt=None):
     if isinstance(cfg, Namespace):
         cfg = convert_namespace_to_omegaconf(cfg)
 
@@ -43,9 +45,9 @@ def main(cfg: DictConfig):
             "generate-{}.txt".format(cfg.dataset.gen_subset),
         )
         with open(output_path, "w", buffering=1, encoding="utf-8") as h:
-            return _main(cfg, h)
+            return _main(cfg, h, extra_bt=extra_bt)
     else:
-        return _main(cfg, sys.stdout)
+        return _main(cfg, sys.stdout, extra_bt=extra_bt)
 
 
 def get_symbols_to_strip_from_output(generator):
@@ -55,7 +57,7 @@ def get_symbols_to_strip_from_output(generator):
         return {generator.eos}
 
 
-def _main(cfg: DictConfig, output_file):
+def _main(cfg: DictConfig, output_file, extra_bt=None):
     logging.basicConfig(
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -90,14 +92,18 @@ def _main(cfg: DictConfig, output_file):
     # Load ensemble
     logger.info("loading model(s) from {}".format(cfg.common_eval.path))
 
-    models, saved_cfg = checkpoint_utils.load_model_ensemble(
-        utils.split_paths(cfg.common_eval.path),
-        arg_overrides=overrides,
-        task=task, 
-        suffix=cfg.checkpoint.checkpoint_suffix,
-        strict=(cfg.checkpoint.checkpoint_shard_count == 1),
-        num_shards=cfg.checkpoint.checkpoint_shard_count,
-    )
+    if extra_bt.get('models') and extra_bt.get('saved_cfg'):
+        models = extra_bt.models
+        saved_cfg = extra_bt.saved_cfg
+    else:
+        models, saved_cfg = checkpoint_utils.load_model_ensemble(
+            utils.split_paths(cfg.common_eval.path),
+            arg_overrides=overrides,
+            task=task,
+            suffix=cfg.checkpoint.checkpoint_suffix,
+            strict=(cfg.checkpoint.checkpoint_shard_count == 1),
+            num_shards=cfg.checkpoint.checkpoint_shard_count,
+        )
 
     # loading the dataset should happen after the checkpoint has been loaded so we can give it the saved task config
     task.load_dataset(cfg.dataset.gen_subset, task_cfg=saved_cfg.task)
@@ -392,13 +398,15 @@ def _main(cfg: DictConfig, output_file):
             file=output_file,
         )
 
+    if extra_bt.get('return_models'):
+        return scorer, models, saved_cfg
     return scorer
 
 
-def cli_main():
+def cli_main(extra_bt=None):
     parser = options.get_generation_parser()
     args = options.parse_args_and_arch(parser)
-    main(args)
+    main(args, extra_bt=extra_bt)
 
 
 if __name__ == "__main__":

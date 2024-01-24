@@ -30,6 +30,8 @@ from graph_of_thoughts import controller, operations, prompter, parser
 from graph_of_thoughts.operations import GraphOfOperations
 from graph_of_thoughts.operations.operations import KeepBestN, Generate, Aggregate, Score, Operation
 from graph_of_thoughts.operations.thought import Thought
+from remote_score import send_scoring_request
+from back_translate import bt
 import utils
 import faulthandler
 faulthandler.enable()

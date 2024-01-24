@@ -16,6 +16,7 @@ import sys
 import time
 from argparse import Namespace
 from collections import namedtuple
+import sentencepiece as spm
 
 import numpy as np
 import torch
@@ -24,6 +25,8 @@ from fairseq.dataclass.utils import convert_namespace_to_omegaconf
 from fairseq.token_generation_constraints import pack_constraints, unpack_constraints
 from fairseq_cli.generate import get_symbols_to_strip_from_output
 from fairseq.dataclass.configs import FairseqConfig
+from fairseq.data import Dictionary
+
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -103,6 +106,19 @@ def make_batches(lines, cfg, task, max_positions, encode_fn):
             constraints=constraints,
         )
 
+def preprocess_sentence(raw_sentence, spm_model_path):
+    # Load the SentencePiece model
+    sp = spm.SentencePieceProcessor()
+    sp.Load(spm_model_path)
+
+    def encode_line(line):
+        line = line.strip()
+        encoded_line = sp.EncodeAsPieces(line)
+        return encoded_line
+
+    preprocessed_sentence = encode_line(raw_sentence)
+
+    return preprocessed_sentence
 
 def main(cfg: FairseqConfig):
     if isinstance(cfg, Namespace):
