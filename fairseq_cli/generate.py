@@ -397,15 +397,22 @@ def _main(cfg: DictConfig, output_file, extra_bt=None):
             ),
             file=output_file,
         )
-
-    if extra_bt.get('return_models'):
-        return scorer, models, saved_cfg
+    def mydecode(x):
+        return x.replace(" ","").replace("▁","", 1).replace("▁"," ")
+    if extra_bt.get('back_translate'):
+        detokenized_hypo_str = mydecode(hypo_str)
+        if extra_bt.get('return_models'):
+            return detokenized_hypo_str, models, saved_cfg
+        else:
+            return detokenized_hypo_str
     return scorer
 
 
 def cli_main(extra_bt=None):
     parser = options.get_generation_parser()
     args = options.parse_args_and_arch(parser)
+    if extra_bt.get('return_models'):
+        return main(args, extra_bt=extra_bt)
     main(args, extra_bt=extra_bt)
 
 

@@ -142,8 +142,8 @@ def generate_translation(
     # Capture the output of the generate command
     sys.argv = ['fairseq-generate'] + generate_args
     if extra_bt.get('return_models'):
-        scorer, models, saved_cfg = generate_cli_main(extra_bt)
-        output = scorer
+        hyp, models, saved_cfg = generate_cli_main(extra_bt)
+        output = hyp
     else:
         output = generate_cli_main()
     # with StringIO() as buf, redirect_stdout(buf):
@@ -186,6 +186,7 @@ source_list = [
 ]
 first_source = source_list.pop(0)
 extra_bt = {
+    "back_translate": True,
     "return_models": True,
     "models": None,
     "saved_cfg": None,
