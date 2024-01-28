@@ -133,7 +133,7 @@ def generate_translation(
         '--remove-bpe',
         '--mplm-type', 'xlmrL',
         '--xlmr-task', 'xlmr_2stage_posdrop',
-        '--model-overrides', "{'xlmr_modeldir':\"/mnt/e/unmt/acl22-sixtp/models/xlmrL_base\", 'enable_lang_proj':\"True\"}",
+        '--model-overrides', "{'xlmr_modeldir':\"/home/slpan/project/POMP/models/xlmrL_base\", 'enable_lang_proj':\"True\"}",
         '--langs', "en,de,es,fi,hi,ru,zh",
         '--enable-lang-proj',
         '--fixed-dictionary', dict_path
@@ -145,7 +145,7 @@ def generate_translation(
         hyp, models, saved_cfg = generate_cli_main(extra_bt)
         output = hyp
     else:
-        output = generate_cli_main()
+        output = generate_cli_main(extra_bt)
     # with StringIO() as buf, redirect_stdout(buf):
     #     if extra_bt.get('return_models'):
     #         scorer, models, saved_cfg = generate_cli_main(extra_bt)
@@ -154,7 +154,7 @@ def generate_translation(
     #         generate_cli_main()
     #         output = buf.getvalue()
     # get H content
-    output = "".join(output.split('\n')[2].split('\t')[2:]).replace(" ","").replace("▁","", 1).replace("▁"," ")
+    # output = "".join(output.split('\n')[2].split('\t')[2:]).replace(" ","").replace("▁","", 1).replace("▁"," ")
     # output=sp.DecodePieces(output)
 
     if extra_bt.get('return_models'):
@@ -179,10 +179,9 @@ def bt(
 
 # Example usage:
 source_list = [
-    "Ғажайып құлаққап.",
-    "Жүлделі бірінші орынды Қызылорда қала­сынан Дастан Айтбайдың 'Инновациялық құлақ­қап 'Safe headphones' жобасы жеңіп алды.",
-    "Оған арнайы диплом мен 300 мың теңгенің сертификаты табыс етілді.",
-    "Дастанның құлаққабын нағыз инновациялық жоба деп айтуға болады."
+    "i love you.",
+    "i hate apple.",
+    "my name is slpan, i am good at coding.",
 ]
 first_source = source_list.pop(0)
 extra_bt = {
@@ -192,25 +191,26 @@ extra_bt = {
     "saved_cfg": None,
 }
 translated_sentence, models, saved_cfg = bt(
-    "/mnt/e/unmt/acl22-sixtp/models/x2x/sentencepiece.bpe.model",
+    "/home/slpan/project/POMP/models/x2x/sentencepiece.bpe.model",
     first_source,
-    src_lang="kk",
-    tgt_lang="en",
-    model_path="/mnt/e/unmt/acl22-sixtp/models/x2x/x2x.pt",
-    dict_path="/mnt/e/unmt/acl22-sixtp/models/x2x/dict.txt",
+    src_lang="en",
+    tgt_lang="kk",
+    model_path="/home/slpan/project/POMP/models/x2x/x2x.pt",
+    dict_path="/home/slpan/project/POMP/models/x2x/dict.txt",
     extra_bt=extra_bt,
 )
+print(translated_sentence)
 extra_bt["return_models"] = False
 extra_bt["models"] = models
 extra_bt["saved_cfg"] = saved_cfg
 for source in source_list:
     translated_sentence = bt(
-       "/mnt/e/unmt/acl22-sixtp/models/x2x/sentencepiece.bpe.model",
+       "/home/slpan/project/POMP/models/x2x/sentencepiece.bpe.model",
         source,
-        src_lang="kk",
-        tgt_lang="en",
-        model_path="/mnt/e/unmt/acl22-sixtp/models/x2x/x2x.pt",
-        dict_path="/mnt/e/unmt/acl22-sixtp/models/x2x/dict.txt",
+        src_lang="en",
+        tgt_lang="kk",
+        model_path="/home/slpan/project/POMP/models/x2x/x2x.pt",
+        dict_path="/home/slpan/project/POMP/models/x2x/dict.txt",
         extra_bt=extra_bt,
     )
     print(translated_sentence)

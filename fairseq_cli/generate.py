@@ -93,8 +93,8 @@ def _main(cfg: DictConfig, output_file, extra_bt=None):
     logger.info("loading model(s) from {}".format(cfg.common_eval.path))
 
     if extra_bt.get('models') and extra_bt.get('saved_cfg'):
-        models = extra_bt.models
-        saved_cfg = extra_bt.saved_cfg
+        models = extra_bt['models']
+        saved_cfg = extra_bt['saved_cfg']
     else:
         models, saved_cfg = checkpoint_utils.load_model_ensemble(
             utils.split_paths(cfg.common_eval.path),
@@ -411,7 +411,7 @@ def _main(cfg: DictConfig, output_file, extra_bt=None):
 def cli_main(extra_bt=None):
     parser = options.get_generation_parser()
     args = options.parse_args_and_arch(parser)
-    if extra_bt.get('return_models'):
+    if extra_bt.get('back_translate'):
         return main(args, extra_bt=extra_bt)
     main(args, extra_bt=extra_bt)
 

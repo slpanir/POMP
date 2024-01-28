@@ -530,12 +530,16 @@ class Generate(Operation):
                 prompt = base_state['prompt'].format(src_text=base_state['original'][1], english_translation=base_state['original'][2])
             else:
                 prompt = prompter.generate_prompt(num_branches=self.num_branches_prompt, **base_state)
+                prompt_bt = prompt.generate_prompt_bt(**base_state)
+                responses_bt = lm.get_response_texts(
+                    lm.query(prompt_bt, num_responses=self.num_branches_response)
+                )
             self.logger.debug("Prompt for LM: %s", prompt)
             responses = lm.get_response_texts(
                 lm.query(prompt, num_responses=self.num_branches_response)
             )
             self.logger.debug("Responses from LM: %s", responses)
-            for new_state in parser.parse_generate_answer(base_state, responses):
+            for new_state in parser.parse_generate_answer_bt(base_state, responses, responses_bt):
                 new_state = {**base_state, **new_state}
                 self.thoughts.append(Thought(new_state))
                 self.logger.debug(

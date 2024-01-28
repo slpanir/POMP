@@ -21,14 +21,14 @@ def torch_gc():
 class TranslationItem(BaseModel):
     src: str = Field(..., example="source text")
     mt: str = Field(..., example="machine translated text")
-    hyp: str = Field(..., example="hypothesis text")
+    ref: str = Field(..., example="reference text")
 
 @app.post("/xcomet_score")
 async def xcomet_score(comet_hyp: List[TranslationItem]):
     global xcomet_model
     try:
         # 准备数据以供模型使用
-        formatted_data = [{"src": item.src, "mt": item.mt, "hyp": item.hyp} for item in comet_hyp]
+        formatted_data = [{"src": item.src, "mt": item.mt, "ref": item.ref} for item in comet_hyp]
 
         # 调用模型进行评分
         model_hyp = xcomet_model.predict(formatted_data, batch_size=8, gpus=1, num_workers=0).to_tuple()[1]

@@ -21,6 +21,9 @@ from graph_of_thoughts import operations
 from fairseq.models.transformer import TransformerModel
 
 import os
+from remote_score import send_scoring_request
+from back_translate import bt
+
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
@@ -126,6 +129,51 @@ def origin_symmetric_swish(x):
         return swish(x)
     else:
         return -swish(-x)
+
+# bleurt and xcomet
+# back translate to score
+def evaluate_got_refine_results_v2(bleurt_model, bleurt_tokenizer, hyp, data, result_path, gt4pseudo=None, pseudo=False):
+    src = [x[1] for x in data]
+    input = [x[2] for x in data]
+    if pseudo:
+        ref = [x[0] for x in gt4pseudo]
+    else:
+        ref = [x[3] for x in data]
+
+    batch_size = 32
+    bleurt_en_res = []
+    bleurt_hyp_res = []
+
+    for i in range(0, len(hyp), batch_size):
+        end_idx = min(i + batch_size, len(ref))
+        bleurt_en_res.extend(compute_bleurt_for_batch(ref[i:end_idx], input[i:end_idx], bleurt_model, bleurt_tokenizer))
+        bleurt_hyp_res.extend(compute_bleurt_for_batch(ref[i:end_idx], hyp[i:end_idx], bleurt_model, bleurt_tokenizer))
+
+        # calculate the average of the en_res and hyp_res
+
+    # calculate the average of the en_res and hyp_res
+    bleurt_input_avg = sum(bleurt_en_res) / len(bleurt_en_res)
+    bleurt_hyp_avg = sum(bleurt_hyp_res) / len(bleurt_hyp_res)
+    print("bleurt_en_avg: " + str(bleurt_input_avg))
+    print("bleurt_hyp_avg: " + str(bleurt_hyp_avg))
+
+
+    comet_hyp = []
+    comet_input = []
+    for i in range(len(ref)):
+        comet_hyp.append({'src': src[i], 'mt': hyp[i], 'ref': ref[i]})
+        comet_input.append({'src': src[i], 'mt': input[i], 'ref': ref[i]})
+
+    bleu_hyp = sacrebleu.corpus_bleu(hyp, [ref]).score
+    bleu_input = sacrebleu.corpus_bleu(input, [ref]).score
+
+    model_hyp = send_scoring_request(comet_hyp)
+    model_input = send_scoring_request(comet_input)
+
+    eval_results = {'bleu_hyp': bleu_hyp, 'bleu_input': bleu_input, 'comet_hyp': model_hyp, 'comet_input': model_input,
+                    'bleurt_hyp': bleurt_hyp_avg, 'bleurt_input': bleurt_input_avg}
+    with open(result_path, 'w', encoding='utf8') as f:
+        json.dump(eval_results, f)
 
 
 def evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, comet_model, hyp, data, result_path, gt4pseudo=None, pseudo=False):
@@ -260,6 +308,59 @@ def combined_score_auto_metric_v2(states: List[Dict]) -> List[float]:
     for state in states:
         scores.append(auto_metric_v2(state))
     return scores
+
+
+# back translate to score
+# bleurt and xcomet
+# src: current[2] mt: bt ref: original[1]
+def auto_metric_v3(state: Dict) -> float:
+    """
+    Function to locally count the number of errors that serves as a score.
+
+    :param state: Thought state to be scored.
+    :type state: Dict
+    :return: Number of errors.
+    :rtype: float
+    """
+    original = state["original"]
+    previous = state["previous"]
+    current = state["current"]
+    if state['pseudo']:
+        if previous != "":
+            original = previous
+
+    bleurt_model = state["bleurt"]["model"]
+    bleurt_tokenizer = state["bleurt"]["tokenizer"]
+
+    bleurt_references = [original[1]]  # [id, src, trans, ref, bt]
+    bleurt_refine_trans = [current[4]]
+
+    with torch.no_grad():
+        refine_inputs = bleurt_tokenizer(bleurt_references, bleurt_refine_trans, padding=True, return_tensors='pt', truncation=True).to(bleurt_model.device)
+        bleurt_refine_res = bleurt_model(**refine_inputs).logits.flatten().tolist()
+
+    comet_refine = [{'src': original[2], 'mt': current[4], 'ref': original[1]}]
+    comet_refine_res = send_scoring_request(comet_refine)
+
+    # bleu_refine_res = sacrebleu.corpus_bleu([current[2]], [[original[3]]]).score
+
+    # normalize
+    unnormed_refine = [comet_refine_res*100, bleurt_refine_res[0]*100]
+
+    # normed_orig = [(x - min(unnormed_orig)) / (max(unnormed_orig) - min(unnormed_orig)) for x in unnormed_orig]
+    # normed_refine = [(x - min(unnormed_refine)) / (max(unnormed_refine) - min(unnormed_refine)) for x in unnormed_refine]
+
+    normed_refine = z_score_normlization(unnormed_refine)
+
+    # bleu_weight = state["sacrebleu"]["weight"]
+    comet_weight = state["xcomet"]["weight"]
+    bleurt_weight = state["bleurt"]["weight"]
+    weight_sum = comet_weight + bleurt_weight
+
+    # weighted average
+    refine_score = (normed_refine[1] * comet_weight + normed_refine[2] * bleurt_weight) / weight_sum
+
+    return refine_score
 
 
 def auto_metric_v2(state: Dict) -> float:
@@ -430,12 +531,3 @@ def output_sample_graph(graph: operations.GraphOfOperations, path: str) -> None:
         file.write(json.dumps(output, indent=2))
 
 
-def bt_nmt(state: Dict):
-    """
-    back translate target sentences to source language with NMT model
-
-    Returns: bt source sentences
-
-    """
-    # Load model
-    

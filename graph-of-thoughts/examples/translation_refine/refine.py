@@ -47,6 +47,42 @@ class RefineTranslationPrompter(prompter.Prompter):
 
     Inherits from the Prompter class and implements its abstract methods.
     """
+    def generate_prompt_bt(self, **kwargs) -> str:
+        data_path = kwargs["data_path"]
+        src_path = kwargs["src_path"]
+        trans_path = kwargs["trans_path"]
+        prompt_path = kwargs["prompt_path"]
+        language = kwargs["language"]
+        lang_map = kwargs["lang_map"]
+        indices = kwargs["indices"]
+
+        prompt_path = os.path.join(prompt_path, f"bt_prompt.txt")
+
+        # Extract sentences from the files based on the selected indices
+        # few shot still pseudo
+        src_sentences = [line.strip() for idx, line in enumerate(open(src_path)) if idx in indices]
+        # ref_sentences = [line.strip() for idx, line in enumerate(open(ref_path)) if idx in indices]
+        ref_sentences = [line.strip() for idx, line in enumerate(open(trans_path)) if idx in indices]
+
+        # Construct the prompt
+        LANG = lang_map[language]
+        prompt = ""
+        for s, r in zip(src_sentences, ref_sentences):
+            prompt += f"<English source>: {r}\n<{LANG} translation>: {s}\n\n"
+
+        src = "{src_text}"
+        prompt += f"<English source>: {src}\n<{LANG} translation>:"
+
+        prompt = prompt.format(src_text=kwargs["original"][2])  # [src, trans, ref]
+        # if prompt.txt does not exist, create it
+        if not os.path.exists(prompt_path):
+            with open(prompt_path, 'w', encoding='utf8') as pp:
+                pp.write(str(indices) + '\n')
+                pp.write(prompt)
+
+        return prompt
+
+
     def generate_prompt_direct_trans(self, **kwargs) -> str:
         data_path = kwargs["data_path"]
         src_path = kwargs["src_path"]
@@ -400,6 +436,38 @@ class RefineTranslationParser(parser.Parser):
             logging.error(
                 f"Could not parse step answer: {text}. Encountered exception: {e}"
             )
+        return new_states
+
+    def parse_generate_answer_bt(self, state: Dict, texts: List[str], texts_bt: List[str]) -> List[Dict]:
+        """
+        Parse the response from the language model for a generate prompt.
+
+        :param state: The thought state used to generate the prompt.
+        :type state: Dict
+        :param texts: The responses to the prompt from the language model.
+        :type texts: List[str]
+        :return: The new thought states after parsing the respones from the language model.
+        :rtype: List[Dict]
+        """
+        new_states = []
+        for id in range(len(texts)):
+            try:
+                new_state = state.copy()
+                if state['current'] != "":
+                    pre = state['current'].copy()
+                    new_state['previous'] = pre
+                cur = state["original"].copy()
+                # cur[2] = text.strip()
+                cur[2] = texts[id].strip().split("\n")[0]
+                cur[4] = texts_bt[id].strip().split("\n")[0]
+                new_state["current"] = cur
+                # new_state["results"].append(cur[2])
+                new_states.append(new_state)
+            except Exception as e:
+                logging.error(
+                    f"Could not parse step answer: {texts[id]}. Encountered exception: {e}"
+                )
+
         return new_states
 
     def parse_generate_answer(self, state: Dict, texts: List[str]) -> List[Dict]:
@@ -964,18 +1032,40 @@ def multi_threads_train(
     bleurt_tokenizer = BleurtTokenizer.from_pretrained('lucadiliello/BLEURT-20', cache_dir=bleurt_cache_dir)
     bleurt_model.eval()
 
-    comet_model_path = '/home/slpan/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
-    comet_model = load_from_checkpoint(comet_model_path).eval().to(device)
+    # comet_model_path = '/home/slpan/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
+    # comet_model = load_from_checkpoint(comet_model_path).eval().to(device)
 
-    nmt_model_path = '/mnt/e/unmt/acl22-sixtp/models/x2x'
-    nmt_model = TransformerModel.from_pretrained(
-        nmt_model_path,
-        checkpoint_file='x2x.pt',
-        bpe='sentencepiece',
-        bpe_codes=os.path.join(nmt_model_path, 'sentencepiece.bpe.model'),
-        fixed_dictionary=os.path.join(nmt_model_path, 'dict.txt'),
-        device=device,
-    ).eval().to(device)
+    extra_bt = {
+        "back_translate": True,
+        "return_models": True,
+        "models": None,
+        "saved_cfg": None,
+    }
+    _, sixtp_models, saved_cfg = bt(
+        "/home/slpan/project/POMP/models/x2x/sentencepiece.bpe.model",
+        "an example for loading model",
+        src_lang=train_lang,
+        tgt_lang=tgt_lang,
+        model_path="/home/slpan/project/POMP/models/x2x/x2x.pt",
+        dict_path="/home/slpan/project/POMP/models/x2x/dict.txt",
+        extra_bt=extra_bt,
+    )
+    extra_bt = {
+        "back_translate": True,
+        "return_models": False,
+        "models": sixtp_models,
+        "saved_cfg": saved_cfg,
+    }
+
+    # nmt_model_path = '/mnt/e/unmt/acl22-sixtp/models/x2x'
+    # nmt_model = TransformerModel.from_pretrained(
+    #     nmt_model_path,
+    #     checkpoint_file='x2x.pt',
+    #     bpe='sentencepiece',
+    #     bpe_codes=os.path.join(nmt_model_path, 'sentencepiece.bpe.model'),
+    #     fixed_dictionary=os.path.join(nmt_model_path, 'dict.txt'),
+    #     device=device,
+    # ).eval().to(device)
 
     data_path = os.path.join(os.path.dirname(__file__), "data", "train-set4test-langs", f"{train_lang}2en")
     src_path = os.path.join(data_path, "src")
@@ -999,10 +1089,10 @@ def multi_threads_train(
 
             if pseudo:
                 # 如果是伪翻译，参考文本就是翻译文本
-                data.append([i, src_line, trans_line, trans_line])
+                data.append([i, src_line, trans_line, trans_line, "~!@#$%^&*()_+"])  # last one for bt, bad enough first
                 gt4pseudo.append([ref_line])
             else:
-                data.append([i, src_line, trans_line, ref_line])
+                data.append([i, src_line, trans_line, ref_line, "~!@#$%^&*()_+"])  # last one for bt, bad enough first
 
     # 如果文件行数不匹配，zip会停止在最短文件的末尾，所以如果你需要确保所有文件具有相同的行数，
     # 你应该在循环结束后检查文件是否已经到达末尾
@@ -1081,22 +1171,22 @@ def multi_threads_train(
                 "ref_path": ref_path,
                 "indices": indices,
                 "language": train_lang,
+                "tgt_lang": tgt_lang,
                 # "similarity": sim,
                 "lang_map": lang_map,
                 "aux_lang": [],
-                "nmt": {
-                    "model": nmt_model,
-                    "weight": 0.0,
-                },
+                # "nmt": {
+                #     "model": nmt_model,
+                #     "weight": 0.0,
+                # },
                 "bleurt": {
                     "model": bleurt_model,
                     "tokenizer": bleurt_tokenizer,
                     "config": bleurt_config,
-                    "weight": 0.8,
+                    "weight": 0.5,
                 },
-                "comet": {
-                    "model": comet_model,
-                    "weight": 0.2,
+                "xcomet": {
+                    "weight": 0.5,
                 },
                 "sacrebleu": {
                     "weight": 0.0,
@@ -1104,6 +1194,7 @@ def multi_threads_train(
                 "score": 0.0,
                 "pseudo": pseudo,
                 "lock": lock,
+                "extra_bt": extra_bt,
             }
     refine_results = OrderedDict()
     aux_prob_points = {
@@ -1139,15 +1230,17 @@ def multi_threads_train(
             "ref_path": state["ref_path"],
             "indices": state["indices"],
             "language": state["language"],
+            "tgt_lang": state["tgt_lang"],
             # "similarity": deepcopy(state["similarity"]),
             "lang_map": state["lang_map"],
             "aux_lang": deepcopy(state["aux_lang"]),
             "bleurt": state["bleurt"],
-            "comet": state["comet"],
+            "xcomet": state["xcomet"],
             "sacrebleu": state["sacrebleu"],
             "score": deepcopy(state["score"]),
             "pseudo": state["pseudo"],
             "lock": state["lock"],
+            "extra_bt": state["extra_bt"],
         }
         t = threading.Thread(target=train, args=(lm_name, api_key_list, start_index, end_index, data, method,
                                                  aux_probability, thread_state, refine_results, unchanged_num,
@@ -1176,7 +1269,9 @@ def multi_threads_train(
         for result in refine_outputs:
             f.write(result + '\n')
     try:
-        utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, comet_model, refine_outputs, data, got_refine_eval, gt4pseudo, pseudo)
+        # utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, comet_model, refine_outputs, data, got_refine_eval, gt4pseudo, pseudo) # bleurt and comet
+        utils.evaluate_got_refine_results_v2(bleurt_model, bleurt_tokenizer, refine_outputs, data,
+                                          got_refine_eval, gt4pseudo, pseudo) # bleurt and xcomet
     except Exception as e:
         logging.error(f"Exception: {e}")
         logging.warning(f"Failed to evaluate got refine results.")
@@ -1218,7 +1313,7 @@ def multi_threads_train(
     # release memory
     del bleurt_model
     del bleurt_tokenizer
-    del comet_model
+    # del comet_model
     del state
     del refine_results
     del threads
@@ -1432,6 +1527,7 @@ def train(
     with lock:
         total_api_key_num += len(lm.api_key_list)
         total_cost += lm.cost
+        last_graph = operations_graph
         utils.output_sample_graph(operations_graph, os.path.join(state['results_path'], f'{item}_graph.json'))
 
 
@@ -2331,8 +2427,8 @@ if __name__ == "__main__":
         # spent = multi_threads_train(test_lang, tgt, sorted_similarity, lang_map, approaches, budget, "chatgpt-16k-super",
         #                             threads_num=8, lr=1, pseudo=True,)
                                     # aux_probs_from_file=f"/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/{test_lang}2en/chatgpt-16k_sample_got_2023-11-13_17-32-04")
-        # folder_path = multi_threads_train(test_lang, tgt, sorted_similarity, lang_map, train_approaches, budget, "chatgpt-super",
-        #                             threads_num=8, lr=1, pseudo=True,)
+        folder_path = multi_threads_train(test_lang, tgt, sorted_similarity, lang_map, train_approaches, budget, "chatgpt-super",
+                                    threads_num=1, lr=1, pseudo=True,)
 
 
         # last_train_graph_path = os.path.join(os.path.dirname(__file__), folder_path, 'last_graph.json')
@@ -2343,11 +2439,11 @@ if __name__ == "__main__":
                                    # output_from_file="/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/gu2en/test/chatgpt-16k_sample_got_test_2023-11-17_08-47-06")
         # ne
 
-        spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_approaches, budget,
-                                   "chatgpt-super",
-                                   threads_num=8,
-                                   opertions_graph_path= graph_path_dict[test_lang]+"/last_graph.json",
-                                   aux_probs_from_file=graph_path_dict[test_lang], )
+        # spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_approaches, budget,
+        #                            "chatgpt-super",
+        #                            threads_num=8,
+        #                            opertions_graph_path= graph_path_dict[test_lang]+"/last_graph.json",
+        #                            aux_probs_from_file=graph_path_dict[test_lang], )
         # budget -= spent
 
         # spent = multi_threads_direct_trans(test_lang, tgt, sorted_similarity, lang_map, test_approaches, budget, "chatgpt4",
