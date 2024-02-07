@@ -160,6 +160,8 @@ graph-of-thoughts/examples/translation_refine/models/
 graph-of-thoughts/examples/translation_refine/results/
 graph-of-thoughts/graph_of_thoughts/controller/config.json
 graph-of-thoughts/paper/
+graph-of-thoughts/examples/translation_refine/xcomet_api.py
+graph-of-thoughts/examples/translation_refine/parallel_xcomet_api.py
 
 keys.txt
 keys2.txt

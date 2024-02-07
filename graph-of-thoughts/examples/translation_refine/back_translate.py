@@ -133,7 +133,7 @@ def generate_translation(
         '--remove-bpe',
         '--mplm-type', 'xlmrL',
         '--xlmr-task', 'xlmr_2stage_posdrop',
-        '--model-overrides', "{'xlmr_modeldir':\"/home/slpan/project/POMP/models/xlmrL_base\", 'enable_lang_proj':\"True\"}",
+        '--model-overrides', "{'xlmr_modeldir':\"/mnt/e/unmt/acl22-sixtp/models/xlmrL_base\", 'enable_lang_proj':\"True\"}",
         '--langs', "en,de,es,fi,hi,ru,zh",
         '--enable-lang-proj',
         '--fixed-dictionary', dict_path
@@ -178,39 +178,39 @@ def bt(
             return translation
 
 # Example usage:
-source_list = [
-    "i love you.",
-    "i hate apple.",
-    "my name is slpan, i am good at coding.",
-]
-first_source = source_list.pop(0)
-extra_bt = {
-    "back_translate": True,
-    "return_models": True,
-    "models": None,
-    "saved_cfg": None,
-}
-translated_sentence, models, saved_cfg = bt(
-    "/home/slpan/project/POMP/models/x2x/sentencepiece.bpe.model",
-    first_source,
-    src_lang="en",
-    tgt_lang="kk",
-    model_path="/home/slpan/project/POMP/models/x2x/x2x.pt",
-    dict_path="/home/slpan/project/POMP/models/x2x/dict.txt",
-    extra_bt=extra_bt,
-)
-print(translated_sentence)
-extra_bt["return_models"] = False
-extra_bt["models"] = models
-extra_bt["saved_cfg"] = saved_cfg
-for source in source_list:
-    translated_sentence = bt(
-       "/home/slpan/project/POMP/models/x2x/sentencepiece.bpe.model",
-        source,
-        src_lang="en",
-        tgt_lang="kk",
-        model_path="/home/slpan/project/POMP/models/x2x/x2x.pt",
-        dict_path="/home/slpan/project/POMP/models/x2x/dict.txt",
-        extra_bt=extra_bt,
-    )
-    print(translated_sentence)
+# source_list = [
+#     "i love you.",
+#     "i hate apple.",
+#     "my name is slpan, i am good at coding.",
+# ]
+# first_source = source_list.pop(0)
+# extra_bt = {
+#     "back_translate": True,
+#     "return_models": True,
+#     "models": None,
+#     "saved_cfg": None,
+# }
+# translated_sentence, models, saved_cfg = bt(
+#     "/home/slpan/project/POMP/models/x2x/sentencepiece.bpe.model",
+#     first_source,
+#     src_lang="en",
+#     tgt_lang="kk",
+#     model_path="/home/slpan/project/POMP/models/x2x/x2x.pt",
+#     dict_path="/home/slpan/project/POMP/models/x2x/dict.txt",
+#     extra_bt=extra_bt,
+# )
+# print(translated_sentence)
+# extra_bt["return_models"] = False
+# extra_bt["models"] = models
+# extra_bt["saved_cfg"] = saved_cfg
+# for source in source_list:
+#     translated_sentence = bt(
+#        "/home/slpan/project/POMP/models/x2x/sentencepiece.bpe.model",
+#         source,
+#         src_lang="en",
+#         tgt_lang="kk",
+#         model_path="/home/slpan/project/POMP/models/x2x/x2x.pt",
+#         dict_path="/home/slpan/project/POMP/models/x2x/dict.txt",
+#         extra_bt=extra_bt,
+#     )
+#     print(translated_sentence)

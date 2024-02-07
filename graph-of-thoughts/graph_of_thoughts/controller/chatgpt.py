@@ -144,6 +144,8 @@ class ChatGPT(AbstractLanguageModel):
                     break
                 except Exception as e:
                     if not 'quota' in str(e):
+                        # sys.exit()
+
                         total_attempts -= 1
                     self.logger.warning(f"Error in chatgpt, trying again, {total_attempts} attempts left")
             if total_attempts == 0:

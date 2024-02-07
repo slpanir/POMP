@@ -524,13 +524,15 @@ class Generate(Operation):
             #     prompt = prompter.generate_prompt_pseudo(num_branches=self.num_branches_prompt, **base_state)
             # else:
             #     prompt = prompter.generate_prompt(num_branches=self.num_branches_prompt, **base_state)
+            responses_bt = None
             if base_state['method'] == 'direct_trans_got':
                 prompt = base_state['prompt'].format(src_text=base_state['original'][1])
             elif base_state['method'] == 'direct_refine_got':
                 prompt = base_state['prompt'].format(src_text=base_state['original'][1], english_translation=base_state['original'][2])
             else:
                 prompt = prompter.generate_prompt(num_branches=self.num_branches_prompt, **base_state)
-                prompt_bt = prompt.generate_prompt_bt(**base_state)
+                # if base_state['original'][4] == '~!@#$%^&*()_+':
+                prompt_bt = prompter.generate_prompt_bt(**base_state)
                 responses_bt = lm.get_response_texts(
                     lm.query(prompt_bt, num_responses=self.num_branches_response)
                 )
@@ -626,7 +628,7 @@ class Aggregate(Operation):
 
     operation_type: OperationType = OperationType.aggregate
 
-    def __init__(self, num_responses: int = 1, num_merges: int = 2) -> None:
+    def __init__(self, num_responses: int = 1, num_merges: int = 2, langs: List[str] = None) -> None:
         """
         Initializes a new Aggregate operation.
 
@@ -637,6 +639,7 @@ class Aggregate(Operation):
         self.thoughts: List[Thought] = []
         self.num_responses: int = num_responses
         self.num_merges: int = num_merges
+        self.langs: List[str] = langs
 
     def get_thoughts(self) -> List[Thought]:
         """
@@ -663,14 +666,18 @@ class Aggregate(Operation):
         :param kwargs: Additional parameters for execution.
         :raises AssertionError: If operation has no predecessors.
         """
-        assert (
-            len(self.predecessors) >= 1
-        ), "Aggregate operation must have at least one predecessor"
+        # assert (
+        #     len(self.predecessors) >= 1
+        # ), "Aggregate operation must have at least one predecessor"
 
         previous_thoughts: List[Thought] = self.get_previous_thoughts()
 
-        if len(previous_thoughts) == 0:
+        if len(previous_thoughts) == 0 and len(self.predecessors) > 0:
             return
+
+        if len(previous_thoughts) == 0:
+            # no predecessors, use kwargs as base state
+            previous_thoughts = [Thought(state=kwargs)]
 
         # applied in order of score
         base_state: Dict = {}
@@ -684,7 +691,16 @@ class Aggregate(Operation):
             previous_thoughts, key=lambda thought: thought.state['score'], reverse=True
         )
         previous_thought_states = [thought.state for thought in previous_thoughts]
+        for state in previous_thought_states:
+            state['aux_lang'] = self.langs
         prompt = prompter.aggregation_prompt(previous_thought_states, **kwargs)
+        # responses_bt = None
+        # if base_state['original'][4] == '~!@#$%^&*()_+':
+        # prompt_bt = prompter.generate_prompt_bt(**base_state)
+        prompt_bt = prompter.generate_prompt_bt(**previous_thought_states[0])
+        responses_bt = lm.get_response_texts(
+            lm.query(prompt_bt, num_responses=self.num_responses)
+        )
 
         self.logger.debug("Prompt for LM: %s", prompt)
 
@@ -694,7 +710,8 @@ class Aggregate(Operation):
 
         self.logger.debug("Responses from LM: %s", responses)
 
-        parsed = parser.parse_aggregation_answer(previous_thought_states, responses)
+        # parsed = parser.parse_aggregation_answer(previous_thought_states, responses)
+        parsed = parser.parse_aggregation_answer_bt(previous_thought_states, responses, responses_bt)
 
         if isinstance(parsed, dict):
             parsed = [parsed]
@@ -796,6 +813,96 @@ class KeepBestN(Operation):
         ), "KeepBestN operation must have at least one predecessor"
 
         self.thoughts = [Thought.from_thought(thought) for thought in self.get_best_n()]
+
+        for thought in self.thoughts:
+            self.logger.debug(
+                "Thought %d with state %s kept", thought.id, thought.state
+            )
+
+        self.logger.info(
+            "KeepBestN operation %d kept %d thoughts", self.id, len(self.thoughts)
+        )
+
+
+class KeepRandomN(Operation):
+    """
+    Operation to keep the best N thoughts from predecessors based on their score.
+    """
+
+    operation_type: OperationType = OperationType.keep_best_n
+
+    def __init__(self, n: int, higher_is_better: bool = True) -> None:
+        """
+        Initializes a new KeepBestN operation.
+
+        :param n: Maximum number of thoughts to keep.
+        :type n: int
+        :param higher_is_better: Whether higher scores are better. Defaults to True.
+        :type higher_is_better: bool
+        :raises AssertionError: If `n` is not greater than zero.
+        """
+        super().__init__()
+        self.n: int = n
+        assert self.n > 0, "KeepBestN operation must keep at least one thought"
+        self.higher_is_better: bool = higher_is_better
+        self.thoughts: List[Thought] = []
+
+    def get_random_n(self) -> List[Thought]:
+        """
+        Returns the best N thoughts from the predecessors based on their score.
+
+        :return: List of best N thoughts.
+        :rtype: List[Thought]
+        :raises AssertionError: If not all predecessors have been executed.
+        :raises AssertionError: If not all thoughts have been scored.
+        """
+        previous_thoughts: List[Thought] = self.get_previous_thoughts()
+        if len(previous_thoughts) == 1:
+            return previous_thoughts
+
+        try:
+            return random.sample(previous_thoughts, self.n)
+        except:
+            self.logger.error("Error in KeepRandomN operation")
+            self.logger.error(
+                "Previous operation: %s", [op.id for op in self.predecessors]
+            )
+            self.logger.error("Previous thoughts: %s", previous_thoughts)
+            self.logger.error(
+                "Scores: %s", [thought.score for thought in previous_thoughts]
+            )
+
+    def get_thoughts(self) -> List[Thought]:
+        """
+        Returns the thoughts kept by the operation.
+
+        :return: List of kept thoughts.
+        :rtype: List[Thought]
+        """
+        return self.thoughts
+
+    def _execute(
+        self, lm: AbstractLanguageModel, prompter: Prompter, parser: Parser, **kwargs
+    ) -> None:
+        """
+        Executes the KeepBestN operation by keeping the best N thoughts from the predecessors according to their score.
+
+        :param lm: The language model to be used.
+        :type lm: AbstractLanguageModel
+        :param prompter: The prompter for crafting prompts.
+        :type prompter: Prompter
+        :param parser: The parser for parsing responses.
+        :type parser: Parser
+        :param kwargs: Additional parameters for execution.
+        :raises AssertionError: If operation has no predecessors.
+        :raises AssertionError: If not all predecessors have been executed.
+        :raises AssertionError: If not all thoughts have been scored.
+        """
+        assert (
+            len(self.predecessors) >= 1
+        ), "KeepBestN operation must have at least one predecessor"
+
+        self.thoughts = [Thought.from_thought(thought) for thought in self.get_random_n()]
 
         for thought in self.thoughts:
             self.logger.debug(

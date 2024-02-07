@@ -1,3 +1,4 @@
+# coding: utf-8
 # Copyright (c) 2023 ETH Zurich.
 #                    All rights reserved.
 #
@@ -73,12 +74,16 @@ class RefineTranslationPrompter(prompter.Prompter):
         src = "{src_text}"
         prompt += f"<English source>: {src}\n<{LANG} translation>:"
 
-        prompt = prompt.format(src_text=kwargs["original"][2])  # [src, trans, ref]
+        with kwargs["lock"]:
+            if kwargs["current"]:
+                prompt = prompt.format(src_text=kwargs["current"][2])  # [id, src, trans, ref]
+            else:
+                prompt = prompt.format(src_text=kwargs["original"][2])
         # if prompt.txt does not exist, create it
-        if not os.path.exists(prompt_path):
-            with open(prompt_path, 'w', encoding='utf8') as pp:
-                pp.write(str(indices) + '\n')
-                pp.write(prompt)
+            if not os.path.exists(prompt_path):
+                with open(prompt_path, 'w', encoding='utf8') as pp:
+                    pp.write(str(indices) + '\n')
+                    pp.write(prompt)
 
         return prompt
 
@@ -122,6 +127,9 @@ class RefineTranslationPrompter(prompter.Prompter):
         src_path = kwargs["src_path"]
         trans_path = kwargs["trans_path"]
         ref_path = kwargs["ref_path"]
+        # refine_path = kwargs["refine_path"]
+        refine_path = kwargs.get("refine_path", None)
+        hard_few_shot = kwargs.get("hard_few_shot", None)
         prompt_path = kwargs["prompt_path"]
         language = kwargs["language"]
         lang_map = kwargs["lang_map"]
@@ -140,13 +148,17 @@ class RefineTranslationPrompter(prompter.Prompter):
         src_sentences = [line.strip() for idx, line in enumerate(open(src_path)) if idx in indices]
         aux_sentences = [line.strip() for idx, line in enumerate(open(aux_path)) if idx in indices]
         input_sentences = [line.strip() for idx, line in enumerate(open(trans_path)) if idx in indices]
-        ref_sentences = [line.strip() for idx, line in enumerate(open(ref_path)) if idx in indices]
+        # ref_sentences = [line.strip() for idx, line in enumerate(open(ref_path)) if idx in indices]
+        if refine_path:
+            refine_sentences = [line.strip() for idx, line in enumerate(open(refine_path)) if idx in indices]
+        else:
+            refine_sentences = [line.strip() for line in hard_few_shot]
 
         # Construct the prompt
         LANG = lang_map[language]
         AUX_LANG = lang_map[aux_lang]
         prompt = ""
-        for s, a, i, r in zip(src_sentences, aux_sentences, input_sentences, ref_sentences):
+        for s, a, i, r in zip(src_sentences, aux_sentences, input_sentences, refine_sentences):
             prompt += f"<{LANG} source>: {s}\n<{AUX_LANG} translation>: {a}\n<English translation>: {i}\n<Refined translation>: {r}\n\n"
         # src = "{" + "{language}_text".format(language=language.lower()) + "}"
         src = "{src_text}"
@@ -160,9 +172,10 @@ class RefineTranslationPrompter(prompter.Prompter):
                       english_translation=kwargs["original"][2])
         # if prompt.txt does not exist, create it
         if not os.path.exists(prompt_path):
-            with open(prompt_path, 'w', encoding='utf8') as pp:
-                pp.write(str(indices) + '\n')
-                pp.write(prompt)
+            with kwargs["lock"]:
+                with open(prompt_path, 'w', encoding='utf8') as pp:
+                    pp.write(str(indices) + '\n')
+                    pp.write(prompt)
 
         return prompt
 
@@ -227,33 +240,45 @@ class RefineTranslationPrompter(prompter.Prompter):
         :rtype: str
         :raise AssertionError: If not exactly two thought states are provided.
         """
-        assert len(state_dicts) >= 2, "Expected two states at least for aggregation prompt."
+        # assert len(state_dicts) >= 2, "Expected two states at least for aggregation prompt."
 
         data_path = kwargs["data_path"]
         src_path = kwargs["src_path"]
         trans_path = kwargs["trans_path"]
         ref_path = kwargs["ref_path"]
+        # refine_path = kwargs["refine_path"]
+        refine_path = kwargs.get("refine_path", None)
+        hard_few_shot = kwargs.get("hard_few_shot", None)
         prompt_path = kwargs["prompt_path"]
         language = kwargs["language"]
         lang_map = kwargs["lang_map"]
         indices = kwargs["indices"]
 
         aux_langs = [lang for state in state_dicts for lang in state['aux_lang']]
+        if isinstance(aux_langs[0], list):
+            aux_langs = aux_langs[0]
         aux_langs = list(dict.fromkeys(aux_langs))
         prompt_path = os.path.join(prompt_path, f"add_{str('-'.join(aux_langs))}_prompt.txt")
 
         # Extract sentences from the files based on the selected indices
         src_sentences = [line.strip() for idx, line in enumerate(open(src_path)) if idx in indices]
         input_sentences = [line.strip() for idx, line in enumerate(open(trans_path)) if idx in indices]
-        ref_sentences = [line.strip() for idx, line in enumerate(open(ref_path)) if idx in indices]
+        # ref_sentences = [line.strip() for idx, line in enumerate(open(ref_path)) if idx in indices]
+        if refine_path:
+            refine_sentences = [line.strip() for idx, line in enumerate(open(refine_path)) if idx in indices]
+        else:
+            refine_sentences = [line.strip() for line in hard_few_shot]
 
         # Construct the prompt
         LANG = lang_map[language]
         prompt = ""
         aux = "{}"
-        for s, i, r in zip(src_sentences, input_sentences, ref_sentences):
+        for s, i, r in zip(src_sentences, input_sentences, refine_sentences):
             prompt += f"<{LANG} source>: {s}\n{aux}<English translation>: {i}\n<Refined translation>: {r}\n\n"
-        prompt += f"<{LANG} source>: {state_dicts[0]['original'][1]}\n{aux}<English translation>: {state_dicts[0]['current'][2]}\n<Refined translation>:"
+        if state_dicts[0]['current'] != "":
+            prompt += f"<{LANG} source>: {state_dicts[0]['original'][1]}\n{aux}<English translation>: {state_dicts[0]['current'][2]}\n<Refined translation>:"
+        else:
+            prompt += f"<{LANG} source>: {state_dicts[0]['original'][1]}\n{aux}<English translation>: {state_dicts[0]['original'][2]}\n<Refined translation>:"
         aux_list = []
         aux_template = "<{AUX_LANG} translation>: {aux_translation}\n"
 
@@ -278,9 +303,10 @@ class RefineTranslationPrompter(prompter.Prompter):
         prompt = prompt.format(*aux_list)
 
         if not os.path.exists(prompt_path):
-            with open(prompt_path, 'w', encoding='utf8') as pp:
-                pp.write(str(indices) + '\n')
-                pp.write(prompt)
+            with kwargs["lock"]:
+                with open(prompt_path, 'w', encoding='utf8') as pp:
+                    pp.write(str(indices) + '\n')
+                    pp.write(prompt)
 
         return prompt
 
@@ -414,7 +440,7 @@ class RefineTranslationParser(parser.Parser):
         :raise AssertionError: If not exactly two thought states are provided.
         """
 
-        assert len(states) >= 2, "Expected two states at least for aggregation answer."
+        # assert len(states) >= 2, "Expected two states at least for aggregation answer."
         assert len(texts) == 1, "Expected exactly one response for aggregation answer."
         new_states = []
         text = texts[0]
@@ -438,7 +464,49 @@ class RefineTranslationParser(parser.Parser):
             )
         return new_states
 
-    def parse_generate_answer_bt(self, state: Dict, texts: List[str], texts_bt: List[str]) -> List[Dict]:
+    def parse_aggregation_answer_bt(
+        self, states: List[Dict], texts: List[str], texts_bt: List[str]
+    ) -> Union[Dict, List[Dict]]:
+        """
+        Parse the response from the language model for an aggregation prompt.
+
+        :param states: The thought states used to generate the prompt.
+        :type states: List[Dict]
+        :param texts: The responses to the prompt from the language model.
+        :type texts: List[str]
+        :return: The new thought states after parsing the respones from the language model.
+        :rtype: Union[Dict, List[Dict]]
+        :raise AssertionError: If not exactly two thought states are provided.
+        """
+
+        # assert len(states) >= 2, "Expected two states at least for aggregation answer."
+        assert len(texts) == 1, "Expected exactly one response for aggregation answer."
+        new_states = []
+        text = texts[0]
+        if states[0]['original'][4] == '~!@#$%^&*()_+':
+            states[0]['original'][4] = texts_bt[0].strip().split("\n")[0]
+        try:
+            new_state = states[0].copy()  # states是按照score的降序排列，取score最高的state
+            if states[0]['current'] != "":
+                pre = states[0]['current'].copy()
+                new_state['previous'] = pre
+            cur = states[0]["original"].copy()
+            # cur[2] = text.strip()
+            cur[2] = text.strip().split("\n")[0]
+            cur[4] = texts_bt[0].strip().split("\n")[0]
+            new_state["current"] = cur
+            # aux_lang list
+            aux_langs = [lang for state in states for lang in state['aux_lang']]
+            aux_langs = list(dict.fromkeys(aux_langs))
+            new_state["aux_lang"] = aux_langs
+            new_states.append(new_state)
+        except Exception as e:
+            logging.error(
+                f"Could not parse step answer: {text}. Encountered exception: {e}"
+            )
+        return new_states
+
+    def parse_generate_answer_bt(self, state: Dict, texts: List[str], texts_bt: List[str]=None) -> List[Dict]:
         """
         Parse the response from the language model for a generate prompt.
 
@@ -453,13 +521,16 @@ class RefineTranslationParser(parser.Parser):
         for id in range(len(texts)):
             try:
                 new_state = state.copy()
+                if state['original'][4] == '~!@#$%^&*()_+' and texts_bt:
+                    state['original'][4] = texts_bt[id].strip().split("\n")[0]
                 if state['current'] != "":
                     pre = state['current'].copy()
                     new_state['previous'] = pre
                 cur = state["original"].copy()
                 # cur[2] = text.strip()
                 cur[2] = texts[id].strip().split("\n")[0]
-                cur[4] = texts_bt[id].strip().split("\n")[0]
+                if texts_bt:
+                    cur[4] = texts_bt[id].strip().split("\n")[0]
                 new_state["current"] = cur
                 # new_state["results"].append(cur[2])
                 new_states.append(new_state)
@@ -832,7 +903,8 @@ def sample_got_test_v2(aux_probability: Dict) -> operations.GraphOfOperations:
     len_gen_aux = len(sample_gen_keys)
 
     gen_operations = {}
-    scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
+    # scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)  # to be the reference in turn
+    scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)  # bt score
     for i in range(0, len_gen_aux):
         gen = operations.Generate(1, 1, lang=sample_gen_keys[i])
         scoreGen.add_predecessor(gen)
@@ -843,7 +915,8 @@ def sample_got_test_v2(aux_probability: Dict) -> operations.GraphOfOperations:
     keep_bestALL = operations.KeepBestN(1, True)
     keep_bestALL.add_predecessor(scoreGen)
     if sample_agg_keys:
-        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
+        # scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
+        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
         for agg_key in sample_agg_keys:
             agg = operations.Aggregate(num_merges=len(agg_key))
             for key in agg_key:
@@ -857,36 +930,225 @@ def sample_got_test_v2(aux_probability: Dict) -> operations.GraphOfOperations:
 
     return operations_graph
 
+def sample_got_test_v2_fixed_probs(aux_probability: Dict) -> operations.GraphOfOperations:
+    # normalize probability
+    # aux_probability = {k: v / sum(aux_probability.values()) for k, v in aux_probability.items()}  # no need?
+    # randomly sample keys according to probability
+    sample_gen_keys, sample_agg_keys = sample_gen_agg_keys(aux_probability)
+    sample_agg_keys_v2 = []
 
-def read_from_file_got_test(got_file: str) -> operations.GraphOfOperations:
-    with open(got_file, 'r') as f:
-        got_json = json.load(f)
+    # agg no more than 3
+    for key in sample_agg_keys:
+        if len(key) <= 3:
+            sample_agg_keys_v2.append(key)
+    sample_agg_keys = sample_agg_keys_v2
+
     operations_graph = operations.GraphOfOperations()
+    len_gen_aux = len(sample_gen_keys)
+
     gen_operations = {}
-    scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
-    scoreAgg = None
+    # scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)  # to be the reference in turn
+    scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)  # bt score
+    for i in range(0, len_gen_aux):
+        gen = operations.Generate(1, 1, lang=sample_gen_keys[i])
+        scoreGen.add_predecessor(gen)
+        operations_graph.add_operation(gen)
+        gen_operations[sample_gen_keys[i]] = gen
+    operations_graph.add_operation(scoreGen)
+
     keep_bestALL = operations.KeepBestN(1, True)
     keep_bestALL.add_predecessor(scoreGen)
-    for operation in got_json:
-        if operation['operation'] == 'generate':
-            gen = operations.Generate(1, 1, lang=operation['aux_lang'])
-            scoreGen.add_predecessor(gen)
-            operations_graph.add_operation(gen)
-            gen_operations[operation['aux_lang']] = gen
-        if operation['operation'] == 'aggregate':
-            if scoreAgg is None:
-                scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
-            agg = operations.Aggregate(num_merges=len(operation['aux_lang']))
-            for key in operation['aux_lang']:
+    if sample_agg_keys:
+        # scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
+        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        for agg_key in sample_agg_keys:
+            agg = operations.Aggregate(num_merges=len(agg_key))
+            for key in agg_key:
                 gen_op = gen_operations[key]
                 agg.add_predecessor(gen_op)
             scoreAgg.add_predecessor(agg)
             operations_graph.add_operation(agg)
-    operations_graph.add_operation(scoreGen)
-    if scoreAgg:
         keep_bestALL.add_predecessor(scoreAgg)
         operations_graph.add_operation(scoreAgg)
     operations_graph.add_operation(keep_bestALL)
+
+    return operations_graph
+
+def sample_got_test_v2_select_random(aux_probability: Dict) -> operations.GraphOfOperations:
+    # normalize probability
+    # aux_probability = {k: v / sum(aux_probability.values()) for k, v in aux_probability.items()}  # no need?
+    # randomly sample keys according to probability
+    sample_gen_keys, sample_agg_keys = sample_gen_agg_keys(aux_probability)
+    sample_agg_keys_v2 = []
+
+    # agg no more than 3
+    for key in sample_agg_keys:
+        if len(key) <= 3:
+            sample_agg_keys_v2.append(key)
+    sample_agg_keys = sample_agg_keys_v2
+
+    operations_graph = operations.GraphOfOperations()
+    len_gen_aux = len(sample_gen_keys)
+
+    gen_operations = {}
+    # scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)  # to be the reference in turn
+    scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)  # bt score
+    for i in range(0, len_gen_aux):
+        gen = operations.Generate(1, 1, lang=sample_gen_keys[i])
+        scoreGen.add_predecessor(gen)
+        operations_graph.add_operation(gen)
+        gen_operations[sample_gen_keys[i]] = gen
+    operations_graph.add_operation(scoreGen)
+
+    keep_bestALL = operations.KeepRandomN(1, True)
+    keep_bestALL.add_predecessor(scoreGen)
+    if sample_agg_keys:
+        # scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
+        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        for agg_key in sample_agg_keys:
+            agg = operations.Aggregate(num_merges=len(agg_key))
+            for key in agg_key:
+                gen_op = gen_operations[key]
+                agg.add_predecessor(gen_op)
+            scoreAgg.add_predecessor(agg)
+            operations_graph.add_operation(agg)
+        keep_bestALL.add_predecessor(scoreAgg)
+        operations_graph.add_operation(scoreAgg)
+    operations_graph.add_operation(keep_bestALL)
+
+    return operations_graph
+
+def sample_got_test_v2_only_gen(aux_probability: Dict) -> operations.GraphOfOperations:
+    # normalize probability
+    # aux_probability = {k: v / sum(aux_probability.values()) for k, v in aux_probability.items()}  # no need?
+    # randomly sample keys according to probability
+    sample_gen_keys, sample_agg_keys = sample_gen_agg_keys(aux_probability)
+    sample_agg_keys_v2 = []
+
+    # agg no more than 3
+    for key in sample_agg_keys:
+        if len(key) <= 3:
+            sample_agg_keys_v2.append(key)
+    # sample_agg_keys = sample_agg_keys_v2
+    sample_agg_keys = None
+
+    operations_graph = operations.GraphOfOperations()
+    len_gen_aux = len(sample_gen_keys)
+
+    gen_operations = {}
+    # scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)  # to be the reference in turn
+    scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)  # bt score
+    for i in range(0, len_gen_aux):
+        gen = operations.Generate(1, 1, lang=sample_gen_keys[i])
+        scoreGen.add_predecessor(gen)
+        operations_graph.add_operation(gen)
+        gen_operations[sample_gen_keys[i]] = gen
+    operations_graph.add_operation(scoreGen)
+
+    keep_bestALL = operations.KeepBestN(1, True)
+    keep_bestALL.add_predecessor(scoreGen)
+    if sample_agg_keys:
+        # scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
+        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        for agg_key in sample_agg_keys:
+            agg = operations.Aggregate(num_merges=len(agg_key))
+            for key in agg_key:
+                gen_op = gen_operations[key]
+                agg.add_predecessor(gen_op)
+            scoreAgg.add_predecessor(agg)
+            operations_graph.add_operation(agg)
+        keep_bestALL.add_predecessor(scoreAgg)
+        operations_graph.add_operation(scoreAgg)
+    operations_graph.add_operation(keep_bestALL)
+
+    return operations_graph
+
+def sample_got_test_v2_only_agg(aux_probability: Dict) -> operations.GraphOfOperations:
+    # normalize probability
+    # aux_probability = {k: v / sum(aux_probability.values()) for k, v in aux_probability.items()}  # no need?
+    # randomly sample keys according to probability
+    sample_gen_keys, sample_agg_keys = sample_gen_agg_keys(aux_probability)
+    sample_agg_keys_v2 = []
+
+    # agg no more than 3
+    for key in sample_agg_keys:
+        if len(key) <= 3:
+            sample_agg_keys_v2.append(key)
+    # sample_agg_keys = sample_agg_keys_v2
+
+    operations_graph = operations.GraphOfOperations()
+    len_gen_aux = len(sample_gen_keys)
+
+    # gen_operations = {}
+    # # scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)  # to be the reference in turn
+    # scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)  # bt score
+    # for i in range(0, len_gen_aux):
+    #     gen = operations.Generate(1, 1, lang=sample_gen_keys[i])
+    #     scoreGen.add_predecessor(gen)
+    #     operations_graph.add_operation(gen)
+    #     gen_operations[sample_gen_keys[i]] = gen
+    # operations_graph.add_operation(scoreGen)
+
+    keep_bestALL = operations.KeepBestN(1, True)
+    # keep_bestALL.add_predecessor(scoreGen)
+    if sample_agg_keys:
+        # scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
+        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        for agg_key in sample_agg_keys:
+            agg = operations.Aggregate(num_merges=len(agg_key), langs=agg_key)
+            # for key in agg_key:
+            #     gen_op = gen_operations[key]
+            #     agg.add_predecessor(gen_op)
+            scoreAgg.add_predecessor(agg)
+            operations_graph.add_operation(agg)
+        keep_bestALL.add_predecessor(scoreAgg)
+        operations_graph.add_operation(scoreAgg)
+    operations_graph.add_operation(keep_bestALL)
+
+    return operations_graph
+
+def read_from_file_got_test(got_file: str, only_gen=False, only_agg=False, select_random=False) -> operations.GraphOfOperations:
+    assert not (only_gen and only_agg), "only_gen and only_agg cannot be True at the same time."
+    with open(got_file, 'r') as f:
+        got_json = json.load(f)
+    operations_graph = operations.GraphOfOperations()
+    gen_operations = {}
+
+    if select_random:
+        keepALL = operations.KeepRandomN(1, True)
+    else:
+        keepALL = operations.KeepBestN(1, True)
+
+    if not only_agg:
+        scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
+        # scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        scoreAgg = None
+    else:
+        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+    for operation in got_json:
+        if operation['operation'] == 'generate' and not only_agg:
+            gen = operations.Generate(1, 1, lang=operation['aux_lang'])
+            scoreGen.add_predecessor(gen)
+            operations_graph.add_operation(gen)
+            gen_operations[operation['aux_lang']] = gen
+        if operation['operation'] == 'aggregate' and not only_gen:
+            if scoreAgg is None:
+                scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
+                # scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+            agg = operations.Aggregate(num_merges=len(operation['aux_lang']), langs=operation['aux_lang'])
+            if not only_agg:
+                for key in operation['aux_lang']:
+                    gen_op = gen_operations[key]
+                    agg.add_predecessor(gen_op)
+            scoreAgg.add_predecessor(agg)
+            operations_graph.add_operation(agg)
+    if not only_agg:
+        keepALL.add_predecessor(scoreGen)
+        operations_graph.add_operation(scoreGen)
+    if scoreAgg and not only_gen:
+        keepALL.add_predecessor(scoreAgg)
+        operations_graph.add_operation(scoreAgg)
+    operations_graph.add_operation(keepALL)
 
     return operations_graph
 
@@ -921,7 +1183,13 @@ def prompt_direct_refine(prompt_path: str, src_path: str, trans_path: str, ref_p
     # Extract sentences from the files based on the selected indices
     src_sentences = [line.strip() for idx, line in enumerate(open(src_path)) if idx in indices]
     input_sentences = [line.strip() for idx, line in enumerate(open(trans_path)) if idx in indices]
-    ref_sentences = [line.strip() for idx, line in enumerate(open(ref_path)) if idx in indices]
+    # ref_sentences = [line.strip() for idx, line in enumerate(open(ref_path)) if idx in indices]
+    ref_sentences = [
+        "Civil rights group warns against travel to Missouri",
+        "On December 7, 2014, 11 children were singing Christmas carols around a fire in Enarotal when two Indonesian soldiers on a motorcycle appeared out of the darkness.",
+        "I am never far from my creations and I am not afraid of work.",
+        "Of course, the old pros go there with their discs, but I haven't gotten to play there yet.",
+    ]  # temp for et, from google translate
 
     # Construct the prompt
     LANG = lang_map[language]
@@ -962,6 +1230,46 @@ def direct_refine_got() -> operations.GraphOfOperations:
 
     return operations_graph
 
+def sample_got_v2(aux_probability: Dict) -> operations.GraphOfOperations:
+    sample_gen_keys, sample_agg_keys = sample_gen_agg_keys(aux_probability)
+    sample_agg_keys_v2 = []
+
+    # agg no more than 3
+    for key in sample_agg_keys:
+        if len(key) <= 3:
+            sample_agg_keys_v2.append(key)
+    sample_agg_keys = sample_agg_keys_v2
+
+    operations_graph = operations.GraphOfOperations()
+    len_gen_aux = len(sample_gen_keys)
+
+    gen_operations = {}
+    scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+    for i in range(0, len_gen_aux):
+        gen = operations.Generate(1, 1, lang=sample_gen_keys[i])
+        scoreGen.add_predecessor(gen)
+        operations_graph.add_operation(gen)
+        gen_operations[sample_gen_keys[i]] = gen
+    operations_graph.add_operation(scoreGen)
+
+    keep_bestALL = operations.KeepBestN(1, True)
+    keep_bestALL.add_predecessor(scoreGen)
+    if sample_agg_keys:
+        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        for agg_key in sample_agg_keys:
+            agg = operations.Aggregate(num_merges=len(agg_key))
+            for key in agg_key:
+                gen_op = gen_operations[key]
+                agg.add_predecessor(gen_op)
+            scoreAgg.add_predecessor(agg)
+            operations_graph.add_operation(agg)
+        keep_bestALL.add_predecessor(scoreAgg)
+        operations_graph.add_operation(scoreAgg)
+    operations_graph.add_operation(keep_bestALL)
+
+    return operations_graph
+
+
 
 def sample_got(aux_probability: Dict) -> operations.GraphOfOperations:
     # normalize probability
@@ -975,13 +1283,13 @@ def sample_got(aux_probability: Dict) -> operations.GraphOfOperations:
     score_operations = {}
     for i in range(0, len_gen_aux):
         gen = operations.Generate(1, 1, lang=sample_gen_keys[i])
-        score = operations.Score(1, False, utils.auto_metric_v2)
+        score = operations.Score(1, False, utils.auto_metric_v3)
         score.add_predecessor(gen)
         operations_graph.add_operation(gen)
         operations_graph.add_operation(score)
         score_operations[sample_gen_keys[i]] = score
 
-    scoreALL = operations.Score(1, True, utils.combined_score_auto_metric_v2)
+    scoreALL = operations.Score(1, True, utils.combined_score_auto_metric_v3)
     keep_bestALL = operations.KeepBestN(1, True)
     keep_bestALL.add_predecessor(scoreALL)
     added_score_operations = []
@@ -1018,6 +1326,9 @@ def multi_threads_train(
     lr: float = 1e-2,
     pseudo: bool = False,
     aux_probs_from_file: str = None,
+    hard_indices: List[int] = None,
+    hard_few_shot: List[str] = None,
+    output_from_file: str = None,
 ) -> str:
 
     orig_budget = budget
@@ -1042,12 +1353,12 @@ def multi_threads_train(
         "saved_cfg": None,
     }
     _, sixtp_models, saved_cfg = bt(
-        "/home/slpan/project/POMP/models/x2x/sentencepiece.bpe.model",
+        "/mnt/e/unmt/acl22-sixtp/models/x2x/sentencepiece.bpe.model",
         "an example for loading model",
         src_lang=train_lang,
         tgt_lang=tgt_lang,
-        model_path="/home/slpan/project/POMP/models/x2x/x2x.pt",
-        dict_path="/home/slpan/project/POMP/models/x2x/dict.txt",
+        model_path="/mnt/e/unmt/acl22-sixtp/models/x2x/x2x.pt",
+        dict_path="/mnt/e/unmt/acl22-sixtp/models/x2x/dict.txt",
         extra_bt=extra_bt,
     )
     extra_bt = {
@@ -1071,6 +1382,7 @@ def multi_threads_train(
     src_path = os.path.join(data_path, "src")
     trans_path = os.path.join(data_path, "hyp")
     ref_path = os.path.join(data_path, "ref")
+    refine_path = None
 
     data = []
     gt4pseudo = []
@@ -1133,7 +1445,10 @@ def multi_threads_train(
             os.path.join(os.path.dirname(__file__), folder_name, method.__name__)
         )
 
-    indices = utils.get_random_indices(len(data))
+    if hard_few_shot:
+        indices = hard_indices
+    else:
+        indices = utils.get_random_indices(len(data))
     logging.info(f"Using indices: {indices} for {train_lang}2{tgt_lang} in few-shot setting.")
 
     lm = controller.ChatGPT(
@@ -1169,7 +1484,9 @@ def multi_threads_train(
                 "src_path": src_path,
                 "trans_path": trans_path,
                 "ref_path": ref_path,
+                "refine_path": refine_path,
                 "indices": indices,
+                "hard_few_shot": hard_few_shot,
                 "language": train_lang,
                 "tgt_lang": tgt_lang,
                 # "similarity": sim,
@@ -1185,7 +1502,7 @@ def multi_threads_train(
                     "config": bleurt_config,
                     "weight": 0.5,
                 },
-                "xcomet": {
+                "comet": {
                     "weight": 0.5,
                 },
                 "sacrebleu": {
@@ -1197,6 +1514,12 @@ def multi_threads_train(
                 "extra_bt": extra_bt,
             }
     refine_results = OrderedDict()
+    if output_from_file:
+        for i in range(len(data)):
+            if os.path.exists(os.path.join(output_from_file, f'{i}')):
+                with open(os.path.join(output_from_file, f'{i}'), 'r', encoding='utf8') as f:
+                    temp_res = json.load(f)
+                    refine_results[i] = temp_res['output']
     aux_prob_points = {
         "de": [],
         "zh": [],
@@ -1228,14 +1551,16 @@ def multi_threads_train(
             "src_path": state["src_path"],
             "trans_path": state["trans_path"],
             "ref_path": state["ref_path"],
+            "refine_path": state["refine_path"],
             "indices": state["indices"],
+            "hard_few_shot": state["hard_few_shot"],
             "language": state["language"],
             "tgt_lang": state["tgt_lang"],
             # "similarity": deepcopy(state["similarity"]),
             "lang_map": state["lang_map"],
             "aux_lang": deepcopy(state["aux_lang"]),
             "bleurt": state["bleurt"],
-            "xcomet": state["xcomet"],
+            "comet": state["comet"],
             "sacrebleu": state["sacrebleu"],
             "score": deepcopy(state["score"]),
             "pseudo": state["pseudo"],
@@ -1263,6 +1588,7 @@ def multi_threads_train(
     f.close()
 
     refine_outputs = [refine_results[i] for i in sorted(refine_results.keys())]
+    logging.info(f"total number of refine outputs: {len(refine_outputs)}")
     got_refine_hyp = os.path.join(os.path.dirname(__file__), folder_name, 'train_got_refine')
     got_refine_eval = os.path.join(os.path.dirname(__file__), folder_name, 'train_metrics.json')
     with open(got_refine_hyp, 'w', encoding='utf8') as f:
@@ -1360,7 +1686,9 @@ def train(
     item = start_index
     # orig_sim = deepcopy(state['similarity'])
     while item < end_index:  # [id, src, en_trans, ref]
-        # state['similarity'] = deepcopy(orig_sim)
+        if refine_results.get(item):
+            item += 1
+            continue
         if len(lm.api_key_list) == 0:
             logging.warning(f"Run out of keys.")
             break
@@ -1400,7 +1728,7 @@ def train(
         rewards = {}
         try:
             last_operation: KeepBestN = executor.graph.leaves[-1]
-            scoreALL: Score = last_operation.predecessors[0]
+            scoreALL: Score = last_operation.predecessors[-1]  # the first score for gen, the second for agg
             aggregate_operations: List[Aggregate] = scoreALL.predecessors
             for aggregate_operation in aggregate_operations:
                 if aggregate_operation.operation_type.name != 'aggregate':
@@ -1497,8 +1825,9 @@ def train(
                 refine_results[item] = executor.graph.leaves[-1].thoughts[0].state["current"][2]
                 if refine_results[item] == data[item][2] or refine_results[item] == data[item][3]:
                     unchanged_num += 1
-        except:
+        except Exception as e:
             # refine_results.append(d[2])
+            logging.error(f"Exception: {e}")
             with lock:
                 if state['pseudo']:
                     refine_results[item] = data[item][3]
@@ -1544,6 +1873,10 @@ def multi_threads_test(
         opertions_graph_path: str = None,
         aux_probs_from_file: str = None,
         output_from_file: str = None,
+        only_gen: bool = False,
+        only_agg: bool = False,
+        select_random: bool = False,
+        fixed_probs: bool = False,
 ) -> float:
     orig_budget = budget
     # need lock: refine_results, lm.cost, lm.api_key_list
@@ -1557,13 +1890,14 @@ def multi_threads_test(
     bleurt_tokenizer = BleurtTokenizer.from_pretrained('lucadiliello/BLEURT-20', cache_dir=bleurt_cache_dir)
     bleurt_model.eval()
 
-    comet_model_path = '/home/slpan/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
-    comet_model = load_from_checkpoint(comet_model_path).eval().to(device)
+    # comet_model_path = '/home/slpan/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
+    # comet_model = load_from_checkpoint(comet_model_path).eval().to(device)
 
     data_path = os.path.join(os.path.dirname(__file__), "data", "x2x", f"{test_lang}2en")
     src_path = os.path.join(data_path, "src")
     trans_path = os.path.join(data_path, "hyp")
     ref_path = os.path.join(data_path, "ref")
+    refine_path = os.path.join(data_path, "llm_direct_refine")
 
     data = []
     # 使用zip函数同时迭代三个文件的每一行
@@ -1579,7 +1913,7 @@ def multi_threads_test(
             # 确保源文件和参考文件的行数相同
             assert src_line and trans_line and ref_line, f"Mismatch at line {i}"
 
-            data.append([i, src_line, trans_line, ref_line])
+            data.append([i, src_line, trans_line, ref_line, "~!@#$%^&*()_+"])
 
     if not os.path.exists(os.path.join(os.path.dirname(__file__), "results")):
         os.makedirs(os.path.join(os.path.join(os.path.dirname(__file__), "results")))
@@ -1640,7 +1974,7 @@ def multi_threads_test(
     method = methods[0]
     if opertions_graph_path:
         logging.info(f"Using given operations graph from {opertions_graph_path}.")
-        operations_graph = read_from_file_got_test(opertions_graph_path)
+        operations_graph = read_from_file_got_test(opertions_graph_path, only_gen=only_gen, only_agg=only_agg, select_random=select_random)
     else:
         operations_graph = method(aux_probability)
     utils.output_sample_graph(operations_graph, os.path.join(os.path.dirname(__file__), folder_name, 'graph.json'))
@@ -1657,6 +1991,7 @@ def multi_threads_test(
         "src_path": src_path,
         "trans_path": trans_path,
         "ref_path": ref_path,
+        "refine_path": refine_path,
         "indices": indices,
         "language": test_lang,
         # "similarity": sim,
@@ -1669,7 +2004,7 @@ def multi_threads_test(
             "weight": 0.5,
         },
         "comet": {
-            "model": comet_model,
+            # "model": comet_model,
             "weight": 0.5,
         },
         "sacrebleu": {
@@ -1710,6 +2045,7 @@ def multi_threads_test(
             "src_path": state["src_path"],
             "trans_path": state["trans_path"],
             "ref_path": state["ref_path"],
+            "refine_path": state["refine_path"],
             "indices": state["indices"],
             "language": state["language"],
             "lang_map": state["lang_map"],
@@ -1740,7 +2076,9 @@ def multi_threads_test(
             f.write(result + '\n')
     # metrics
     try:
-        utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, comet_model, refine_outputs, data,
+        # utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, comet_model, refine_outputs, data,
+        #                                   got_refine_eval)
+        utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, refine_outputs, data,
                                           got_refine_eval)
     except Exception as e:
         logging.error(f"Exception: {e}")
@@ -1833,7 +2171,8 @@ def test(
                 refine_results[item] = executor.graph.leaves[-1].thoughts[0].state["current"][2]
                 if refine_results[item] == data[item][2] or refine_results[item] == data[item][3]:
                     unchanged_num += 1
-        except:
+        except Exception as e:
+            logging.error(f"Exception: {e}")
             # refine_results.append(d[2])
             with lock:
                 if state['pseudo']:
@@ -1891,8 +2230,8 @@ def multi_threads_direct_trans(
     bleurt_tokenizer = BleurtTokenizer.from_pretrained('lucadiliello/BLEURT-20', cache_dir=bleurt_cache_dir)
     bleurt_model.eval()
 
-    comet_model_path = '/home/slpan/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
-    comet_model = load_from_checkpoint(comet_model_path).eval().to(device)
+    # comet_model_path = '/home/slpan/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
+    # comet_model = load_from_checkpoint(comet_model_path).eval().to(device)
 
     data_path = os.path.join(os.path.dirname(__file__), "data", "x2x", f"{test_lang}2en")
     src_path = os.path.join(data_path, "src")
@@ -1913,7 +2252,7 @@ def multi_threads_direct_trans(
             # 确保源文件和参考文件的行数相同
             assert src_line and trans_line and ref_line, f"Mismatch at line {i}"
 
-            data.append([i, src_line, trans_line, ref_line])
+            data.append([i, src_line, trans_line, ref_line, '~!@#$%^&*()_+'])
 
     if not os.path.exists(os.path.join(os.path.dirname(__file__), "results")):
         os.makedirs(os.path.join(os.path.join(os.path.dirname(__file__), "results")))
@@ -1949,7 +2288,8 @@ def multi_threads_direct_trans(
             os.path.join(os.path.dirname(__file__), folder_name, method.__name__)
         )
 
-    indices = utils.get_random_indices(len(data))
+    # indices = utils.get_random_indices(len(data))
+    indices = [278, 1644, 615, 30]  # temp for et
     logging.info(f"Using indices: {indices} for {test_lang}2{tgt_lang} in few-shot setting.")
 
     lm = controller.ChatGPT(
@@ -2051,8 +2391,7 @@ def multi_threads_direct_trans(
             f.write(result + '\n')
     # metrics
     try:
-        utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, comet_model, refine_outputs, data,
-                                          got_refine_eval)
+        utils.evaluate_got_refine_results_v2(bleurt_model, bleurt_tokenizer, refine_outputs, data, got_refine_eval)
     except Exception as e:
         logging.error(f"Exception: {e}")
         logging.warning(f"Failed to evaluate got refine results.")
@@ -2127,7 +2466,8 @@ def direct_trans(
         try:
             with lock:
                 refine_results[item] = executor.graph.leaves[-1].thoughts[0].state["current"][2]
-        except:
+        except Exception as e:
+            logging.error(f"Exception: {e}")
             logging.warning(f"Failed to get output for {item}")
             is_failed = "failed_"  # 用于区分是否是失败的样本
             with lock:
@@ -2348,7 +2688,7 @@ def run(
         for result in refine_results:
             f.write(result + '\n')
     try:
-        utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, comet_model, refine_results, data, got_refine_eval)
+        utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, refine_results, data, got_refine_eval)
     except Exception as e:
         logging.error(f"Exception: {e}")
         logging.warning(f"Failed to evaluate got refine results.")
@@ -2389,23 +2729,32 @@ if __name__ == "__main__":
     # budget = 1000-9.74574-283.85823
     budget = 1000
 
-    # test_langs = ["et", "gu", "kk", "lv", "ne", "si"]
-    test_langs = ["et"]
+    only_agg_test_langs = ["gu", "kk", "lv", "ne", "si"]
+    only_gen_test_langs = ["kk", "lv", "ne", "si"]
+    select_random_test_langs = ["et", "gu", "kk", "lv", "ne", "si"]
+    fixed_probs_test_langs = ["et", "gu", "kk", "lv", "ne", "si"]
+    direct_test_langs = ["kk"]
     # test_langs = ["si"]
+    test_langs = ["lv", "ne", "si"]
+    all_test_langs = ["et", "gu", "kk", "lv", "ne", "si"]
     train_langs = ["de", "es", "fi", "hi", "ru", "zh"]
     lang_map = {"et": "Estonian", "gu": "Gujarati", "kk": "Kazakh", "lv": "Latvian", "ne": "Nepali", "si": "Sinhala",
                 "de": "German", "es": "Spanish", "fi": "Finnish", "hi": "Hindi", "ru": "Russian", "zh": "Chinese"
                 }
     tgt = "en"
     # samples = [item for item in range(0, 100)]
-    train_approaches = [sample_got]
+    train_approaches = [sample_got_v2]
     test_approaches = [sample_got_test_v2]
+    test_only_gen_approaches = [sample_got_test_v2_only_gen]
+    test_only_agg_approaches = [sample_got_test_v2_only_agg]
+    test_select_random_approaches = [sample_got_test_v2_select_random]
+    test_fixed_probs_approaches = [sample_got_test_v2_fixed_probs]
     trans_approaches = [direct_trans_got]
     refine_approaches = [direct_refine_got]
     # approaches = [got]
     similarity = torch.load("similarity_genres.pt", map_location=torch.device('cpu'))
     sorted_similarity = {}
-    for test_lang in test_langs:
+    for test_lang in all_test_langs:
         to_tgt_sim = []
         for train_lang in train_langs:
             if test_lang == train_lang:
@@ -2415,20 +2764,120 @@ if __name__ == "__main__":
         sorted_similarity[f"{test_lang}"] = to_tgt_sim
     # {"src-tgt": {"src": tensor, "tgt": tensor, "cos_sim": float}}
     graph_path_dict = {
-        "et": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/et2en/chatgpt-16k-super_sample_got_2023-11-18_16-11-41",
-        "gu": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/gu2en/chatgpt-16k_sample_got_2023-11-17_00-08-41",
-        "kk": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/kk2en/chatgpt-16k-super_sample_got_2023-11-17_16-55-27",
-        "lv": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/lv2en/chatgpt-16k-super_sample_got_2023-11-18_00-32-31",
-        "ne": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/ne2en/chatgpt-16k-super_sample_got_2023-11-18_11-52-11",
-        "si": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/si2en/chatgpt-16k-super_sample_got_2023-11-18_13-34-20"
+        "et": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/et2en/chatgpt-super_sample_got_v2_2024-01-30_03-17-04",
+        "gu": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/gu2en/chatgpt-super_sample_got_v2_2024-01-30_17-16-59",
+        "kk": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/kk2en/chatgpt-super_sample_got_v2_2024-01-30_21-19-32",
+        "lv": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/lv2en/chatgpt-super_sample_got_v2_2024-02-01_16-21-43",
+        "ne": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/ne2en/chatgpt-super_sample_got_v2_2024-02-02_10-12-10",
+        "si": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/si2en/chatgpt-super_sample_got_v2_2024-02-03_02-12-42"
     }
-    for test_lang in test_langs:
+    test_output_from_file_dict = {
+        "et": None,
+        "gu": None,
+        "kk": None,
+        "lv": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/lv2en/test/chatgpt-super_sample_got_test_v2_2024-02-06_15-50-59",
+        "ne": None,
+        "si": None,
+    }
+    test_only_gen_output_from_file_dict = {
+        "et": None,
+        "gu": None,
+        "kk": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/kk2en/test/chatgpt-super_sample_got_test_v2_only_gen_2024-02-06_09-55-10",
+        "lv": None,
+        "ne": None,
+        "si": None,
+    }
+    test_only_agg_output_from_file_dict = {
+        "et": None,
+        "gu": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/gu2en/test/chatgpt-super_sample_got_test_v2_only_agg_2024-02-06_16-15-15",
+        "kk": None,
+        "lv": None,
+        "ne": None,
+        "si": None,
+    }
+    test_select_random_output_from_file_dict = {
+        "et": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/et2en/test/chatgpt-super_sample_got_test_v2_select_random_2024-02-05_13-22-02",
+        "gu": None,
+        "kk": None,
+        "lv": None,
+        "ne": None,
+        "si": None,
+    }
+    test_fixed_probs_output_from_file_dict = {
+        "et": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/et2en/test/chatgpt-super_sample_got_test_v2_fixed_probs_2024-02-05_21-46-51",
+        "gu": None,
+        "kk": None,
+        "lv": None,
+        "ne": None,
+        "si": None,
+    }
+
+    # train set in test languages
+    hard_indices = [93, 397, 567, 851]  # random generate
+    # translate from google as few-shot pseudo label
+    et_few_shot = [
+        "Degei sits on the mud floor - he has no furniture - and there he also does his daily household chores, for example washing clothes with cloudy water from the nearby swamp.",
+        "When Bardina Degei cooks dinner, she does not use the stove.",
+        "Laila Ali: I am inspired every day by my personal goals.",
+        "\"We weren't used to wearing clothes like this,\" says Degei, referring to her colorful handwoven turban, dark blouse and bright skirt.",
+    ]
+    gu_few_shot = [
+        "I was also happy to see her happy, but on the third morning her period started.",
+        "Periods and entry into the house",
+        "In 2006, the Indian Young Lawyers Association filed a Public Interest Litigation in the Supreme Court challenging the ban on the temple.",
+        "My newly married sakhi told me about two weeks ago that she is preparing for Vrat before her third.",
+    ]
+    kk_few_shot = [
+        "Meanwhile, Remainers marched through Birmingham before holding a two-hour campaign in the city centre.",
+        "But there are enough reasons to reject this conclusion.",
+        "However, the policies conducted in recent years did not leave room for intangible assets, unstable political situation, geopolitical conflicts, increased risk in financial markets - these can deviate the model from its direction.",
+        "Let's rewrite the scenario of monetary policy",
+    ]
+    lv_few_shot = [
+        "After that I realized that working in a team is sometimes dangerous.",
+        "Dreams disappear in the sands of Rio.",
+        "Olga has a higher legal education - a master's degree.",
+        "\"This year we celebrate the ten-year anniversary of the \"Riga Detective Agency\".",
+    ]
+    ne_few_shot = [
+        "This contradicts earlier reports which said that canceling the decisive election would be unconstitutional.",
+        "It had a weak army and a weak navy, however they had just built four new ships just before the war.",
+        "Depending on the needs of the organism, the eye has more than one structure.",
+        "Hangi is often used to make traditional roast style dinners.",
+    ]
+    si_few_shot = [
+        "This is contrary to previous reports which stated that canceling the by-election would be unconstitutional.",
+        "Although four new ships were built before the outbreak of war, they had a weak army and navy.",
+        "There are different forms of eyes that exist in a complex range depending on the sexual needs of the organism.",
+        "Hangi is often used to cook a traditional roast style dinner.",
+    ]
+    hard_few_shot = {
+        'et': et_few_shot,
+        'gu': gu_few_shot,
+        'kk': kk_few_shot,
+        'lv': lv_few_shot,
+        'ne': ne_few_shot,
+        'si': si_few_shot,
+    }
+
+
+    # for test_lang in test_langs:
+    # for test_lang in only_gen_test_langs:
+    # for test_lang in only_agg_test_langs:
+    # for test_lang in select_random_test_langs:
+    # for test_lang in fixed_probs_test_langs:
+    # for test_lang in direct_test_langs:
+    # for train_lang in train_langs:
         # spent = run(test_lang, tgt, sorted_similarity, lang_map, approaches, budget, "chatgpt4")
         # spent = multi_threads_train(test_lang, tgt, sorted_similarity, lang_map, approaches, budget, "chatgpt-16k-super",
         #                             threads_num=8, lr=1, pseudo=True,)
                                     # aux_probs_from_file=f"/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/{test_lang}2en/chatgpt-16k_sample_got_2023-11-13_17-32-04")
-        folder_path = multi_threads_train(test_lang, tgt, sorted_similarity, lang_map, train_approaches, budget, "chatgpt-super",
-                                    threads_num=1, lr=1, pseudo=True,)
+
+        #
+        # folder_path = multi_threads_train('si', tgt, sorted_similarity, lang_map, train_approaches, budget, "chatgpt-super",
+        #                             threads_num=10, lr=0.28242953648100017, hard_indices=hard_indices, hard_few_shot=hard_few_shot[test_lang],
+        #                             aux_probs_from_file='/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/si2en/chatgpt-super_sample_got_v2_2024-02-02_19-54-09',
+        #                             output_from_file='/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/si2en/chatgpt-super_sample_got_v2_2024-02-02_19-54-09')
 
 
         # last_train_graph_path = os.path.join(os.path.dirname(__file__), folder_path, 'last_graph.json')
@@ -2437,19 +2886,63 @@ if __name__ == "__main__":
         #                            threads_num=1, opertions_graph_path="/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/kk2en/chatgpt-16k-super_sample_got_2023-11-17_16-55-27/last_graph.json",
         #                            aux_probs_from_file="/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/kk2en/chatgpt-16k-super_sample_got_2023-11-17_16-55-27",)
                                    # output_from_file="/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/gu2en/test/chatgpt-16k_sample_got_test_2023-11-17_08-47-06")
-        # ne
 
+        # test
         # spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_approaches, budget,
         #                            "chatgpt-super",
-        #                            threads_num=8,
+        #                            threads_num=10,
         #                            opertions_graph_path= graph_path_dict[test_lang]+"/last_graph.json",
-        #                            aux_probs_from_file=graph_path_dict[test_lang], )
+        #                            aux_probs_from_file=graph_path_dict[test_lang],
+        #                            output_from_file=test_output_from_file_dict[test_lang])
         # budget -= spent
 
-        # spent = multi_threads_direct_trans(test_lang, tgt, sorted_similarity, lang_map, test_approaches, budget, "chatgpt4",
-        #                            threads_num=10,)
+        # only gen
+        # spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_only_gen_approaches, budget,
+        #                            "chatgpt-super",
+        #                            threads_num=10,
+        #                            opertions_graph_path=graph_path_dict[test_lang] + "/last_graph.json",
+        #                            only_gen=True,
+        #                            output_from_file=test_only_gen_output_from_file_dict[test_lang],
+        #                            )
+        # budget -= spent
+
+        # only agg
+        # spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_only_agg_approaches, budget,
+        #                            "chatgpt-super",
+        #                            threads_num=10,
+        #                            opertions_graph_path=graph_path_dict[test_lang] + "/last_graph.json",
+        #                            only_agg=True,
+        #                            output_from_file=test_only_agg_output_from_file_dict[test_lang],
+        #                            )
+        # budget -= spent
+
+        # select random
+        # spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_select_random_approaches, budget,
+        #                            "chatgpt-super",
+        #                            threads_num=10,
+        #                            opertions_graph_path=graph_path_dict[test_lang] + "/last_graph.json",
+        #                            select_random=True,
+        #                            output_from_file=test_select_random_output_from_file_dict[test_lang],
+        #                            )
+
+        # fixed probs
+        # spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_fixed_probs_approaches, budget,
+        #                            "chatgpt-super",
+        #                            threads_num=10,
+        #                            opertions_graph_path=f"/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/{test_lang}2en/graph_from_sim" + "/last_graph.json",
+        #                            output_from_file=test_fixed_probs_output_from_file_dict[test_lang],
+        #                            )
 
 
-    # logging.info(f"Spent {spent} out of {budget} budget.")
 
-    # utils.evaluate_from_file('chatgpt_got_2023-10-22_20-05-50', 'kk')
+        # spent = multi_threads_direct_trans(test_lang, tgt, sorted_similarity, lang_map, trans_approaches, budget,
+        #                             "chatgpt-super",
+        #                             threads_num=10, )
+    test_lang = "et"
+    spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_approaches, budget,
+                               "chatgpt-super",
+                               threads_num=10,
+                               opertions_graph_path= graph_path_dict[test_lang]+"/last_graph.json",
+                               aux_probs_from_file=graph_path_dict[test_lang],)
+
+    # utils.evaluate_from_file("chatgpt-super_sample_got_test_v2_2024-02-01_03-14-00", "et")

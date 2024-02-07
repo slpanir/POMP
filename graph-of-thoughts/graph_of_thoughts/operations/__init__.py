@@ -7,6 +7,7 @@ from .operations import (
     Generate,
     Aggregate,
     KeepBestN,
+    KeepRandomN,
     KeepValid,
     Selector,
     GroundTruth,
