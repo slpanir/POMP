@@ -2,7 +2,7 @@
 #SBATCH -N 1
 #SBATCH -n 8
 #SBATCH --gres=gpu:1
-#SBATCH -o /home/tianzhiliang/project/slpan/acl22-sixtp/scripts/log/genres_train2train
+#SBATCH -o
 #SBATCH -M priv
 #SBATCH -p priv_para
 
@@ -10,7 +10,7 @@
 #module load anaconda/3.7.4
 #module load nvidia/cuda/10.2
 #module load gcc/5.4
-#source activate /home/tianzhiliang/dat01/.conda/envs/sixtp
+#source activate
 
 train_sixtp_first_stage(){
     config='m2En'  ## ['m2En', 'm2m'], train a many-to-English or many-to-many SixT+ model

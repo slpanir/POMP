@@ -1394,7 +1394,7 @@ def multi_threads_train(
     bleurt_tokenizer = BleurtTokenizer.from_pretrained('lucadiliello/BLEURT-20', cache_dir=bleurt_cache_dir)
     bleurt_model.eval()
 
-    # comet_model_path = '/home/slpan/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
+    # comet_model_path = '/home/xxxx/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
     # comet_model = load_from_checkpoint(comet_model_path).eval().to(device)
 
     extra_bt = {
@@ -1943,7 +1943,7 @@ def multi_threads_test(
     bleurt_tokenizer = BleurtTokenizer.from_pretrained('lucadiliello/BLEURT-20', cache_dir=bleurt_cache_dir)
     bleurt_model.eval()
 
-    # comet_model_path = '/home/slpan/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
+    # comet_model_path = '/home/xxx/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
     # comet_model = load_from_checkpoint(comet_model_path).eval().to(device)
 
     data_path = os.path.join(os.path.dirname(__file__), "data", "x2x", f"{test_lang}2en")
@@ -2290,7 +2290,7 @@ def multi_threads_direct_trans(
     bleurt_tokenizer = BleurtTokenizer.from_pretrained('lucadiliello/BLEURT-20', cache_dir=bleurt_cache_dir)
     bleurt_model.eval()
 
-    # comet_model_path = '/home/slpan/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
+    # comet_model_path = '/home/xxx/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
     # comet_model = load_from_checkpoint(comet_model_path).eval().to(device)
 
     data_path = os.path.join(os.path.dirname(__file__), "data", "x2x", f"{test_lang}2en")
@@ -2587,7 +2587,7 @@ def run(
     bleurt_tokenizer = BleurtTokenizer.from_pretrained('lucadiliello/BLEURT-20', cache_dir=bleurt_cache_dir)
     bleurt_model.eval()
 
-    comet_model_path = '/home/slpan/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
+    comet_model_path = '/home/xxx/.cache/huggingface/hub/models--Unbabel--wmt22-comet-da/snapshots/371e9839ca4e213dde891b066cf3080f75ec7e72/checkpoints/model.ckpt'
     comet_model = load_from_checkpoint(comet_model_path).eval().to(device)
 
     data_path = os.path.join(os.path.dirname(__file__), "data", "x2x", f"{test_lang}2en")

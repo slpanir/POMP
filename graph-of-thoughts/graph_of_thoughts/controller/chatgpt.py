@@ -18,7 +18,6 @@ import requests
 import concurrent.futures
 from .abstract_language_model import AbstractLanguageModel
 
-# openai.api_base = "https://slpansir.com/v1"  # psl
 
 
 # def on_backoff_handler(details):
@@ -72,7 +71,6 @@ class ChatGPT(AbstractLanguageModel):
             raise ValueError("OPENAI_API_KEY is not set")
         # openai.api_key = self.api_key
 
-        # psl
         self.api_key_list: list = self.config["api_key_list"]
         openai.api_key = self.api_key_list[0]
         if threads:
@@ -179,9 +177,6 @@ class ChatGPT(AbstractLanguageModel):
         :rtype: Dict
         """
         try:
-            # psl
-            # with requests.Session() as s:
-            #     openai.requestssession = s
             response = openai.ChatCompletion.create(
                 model=self.model_id,
                 messages=messages,
@@ -196,28 +191,17 @@ class ChatGPT(AbstractLanguageModel):
             self.completion_tokens += response["usage"]["completion_tokens"]
             prompt_tokens_k = float(self.prompt_tokens) / 1000.0
             completion_tokens_k = float(self.completion_tokens) / 1000.0
-            # psl
+
             self.cost = (
                     self.prompt_token_cost * prompt_tokens_k
                     + self.response_token_cost * completion_tokens_k
             )
-            # try:
-            #     with self.lock:
-            #         self.cost = (
-            #             self.prompt_token_cost * prompt_tokens_k
-            #             + self.response_token_cost * completion_tokens_k
-            #         )
-            # except:
-            #     self.cost = (
-            #         self.prompt_token_cost * prompt_tokens_k
-            #         + self.response_token_cost * completion_tokens_k
-            #     )
+
             self.logger.info(
                 f"This is the response from chatgpt: {response}"
                 f"\nThis is the cost of the response: {self.cost}"
             )
         except Exception as e:
-            # psl
             # openai error code 503: exit()
             time.sleep(random.randint(1, 3))
             if 'quota' in str(e):
