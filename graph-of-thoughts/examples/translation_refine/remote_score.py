@@ -4,8 +4,8 @@ from requests.adapters import HTTPAdapter
 
 # from utils import evaluate_from_file
 def send_scoring_request(translation_items):
-    # url = 'http://36.103.234.80:8080/xcomet_score'
-    url = 'http://175.27.224.29:8080/xcomet_score'
+    # url = 'http://xxxx/xcomet_score'
+    url = 'http://xxxx/xcomet_score'
     headers = {'Content-Type': 'application/json'}
     session = requests.Session()
     retries = Retry(total=3,  # 总重试次数
