@@ -465,7 +465,7 @@ class RefineTranslationParser(parser.Parser):
         return new_states
 
     def parse_aggregation_answer_bt(
-        self, states: List[Dict], texts: List[str], texts_bt: List[str]
+        self, states: List[Dict], texts: List[str], texts_bt: List[str]=None
     ) -> Union[Dict, List[Dict]]:
         """
         Parse the response from the language model for an aggregation prompt.
@@ -483,7 +483,7 @@ class RefineTranslationParser(parser.Parser):
         assert len(texts) == 1, "Expected exactly one response for aggregation answer."
         new_states = []
         text = texts[0]
-        if states[0]['original'][4] == '~!@#$%^&*()_+':
+        if states[0]['original'][4] == '~!@#$%^&*()_+' and texts_bt:
             states[0]['original'][4] = texts_bt[0].strip().split("\n")[0]
         try:
             new_state = states[0].copy()  # states是按照score的降序排列，取score最高的state
@@ -493,7 +493,8 @@ class RefineTranslationParser(parser.Parser):
             cur = states[0]["original"].copy()
             # cur[2] = text.strip()
             cur[2] = text.strip().split("\n")[0]
-            cur[4] = texts_bt[0].strip().split("\n")[0]
+            if texts_bt:
+                cur[4] = texts_bt[0].strip().split("\n")[0]
             new_state["current"] = cur
             # aux_lang list
             aux_langs = [lang for state in states for lang in state['aux_lang']]
@@ -803,6 +804,16 @@ def full_got(max_gen_aux=6, max_merge_aux=2) -> operations.GraphOfOperations:
 
     return operations_graph
 
+def random_gen_agg_keys(gen_probability) -> Tuple[List[Any], List[Any]]:
+    sample_gen_keys = np.random.choice(list(gen_probability.keys()), 3, replace=False)
+    len_gen_aux = len(sample_gen_keys)
+    agg_list = []
+    for i in range(2, len_gen_aux + 1):
+        for j in range(0, len_gen_aux - i + 1):
+            agg_list.append(tuple(sample_gen_keys[j:j+i]))
+    random_index = np.random.choice(len(agg_list))
+    sample_agg_keys = [agg_list[random_index]]
+    return sample_gen_keys, sample_agg_keys
 
 def sample_gen_agg_keys(gen_probability) -> Tuple[List[Any], List[Any]]:
     # normalize probability
@@ -919,6 +930,43 @@ def sample_got_test_v2(aux_probability: Dict) -> operations.GraphOfOperations:
         scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
         for agg_key in sample_agg_keys:
             agg = operations.Aggregate(num_merges=len(agg_key))
+            for key in agg_key:
+                gen_op = gen_operations[key]
+                agg.add_predecessor(gen_op)
+            scoreAgg.add_predecessor(agg)
+            operations_graph.add_operation(agg)
+        keep_bestALL.add_predecessor(scoreAgg)
+        operations_graph.add_operation(scoreAgg)
+    operations_graph.add_operation(keep_bestALL)
+
+    return operations_graph
+
+def sample_got_test_v2_aux_random(aux_probability: Dict) -> operations.GraphOfOperations:
+    # normalize probability
+    # aux_probability = {k: v / sum(aux_probability.values()) for k, v in aux_probability.items()}  # no need?
+    # randomly sample keys according to probability
+    sample_gen_keys, sample_agg_keys = random_gen_agg_keys(aux_probability)
+
+    operations_graph = operations.GraphOfOperations()
+    len_gen_aux = len(sample_gen_keys)
+
+    gen_operations = {}
+    scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)  # to be the reference in turn
+    # scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)  # bt score
+    for i in range(0, len_gen_aux):
+        gen = operations.Generate(1, 1, lang=sample_gen_keys[i])
+        scoreGen.add_predecessor(gen)
+        operations_graph.add_operation(gen)
+        gen_operations[sample_gen_keys[i]] = gen
+    operations_graph.add_operation(scoreGen)
+
+    keep_bestALL = operations.KeepBestN(1, True)
+    keep_bestALL.add_predecessor(scoreGen)
+    if sample_agg_keys:
+        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
+        # scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        for agg_key in sample_agg_keys:
+            agg = operations.Aggregate(num_merges=len(agg_key), langs=agg_key)
             for key in agg_key:
                 gen_op = gen_operations[key]
                 agg.add_predecessor(gen_op)
@@ -1124,7 +1172,8 @@ def read_from_file_got_test(got_file: str, only_gen=False, only_agg=False, selec
         # scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)
         scoreAgg = None
     else:
-        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        # scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
     for operation in got_json:
         if operation['operation'] == 'generate' and not only_agg:
             gen = operations.Generate(1, 1, lang=operation['aux_lang'])
@@ -1244,7 +1293,8 @@ def sample_got_v2(aux_probability: Dict) -> operations.GraphOfOperations:
     len_gen_aux = len(sample_gen_keys)
 
     gen_operations = {}
-    scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+    # scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+    scoreGen = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
     for i in range(0, len_gen_aux):
         gen = operations.Generate(1, 1, lang=sample_gen_keys[i])
         scoreGen.add_predecessor(gen)
@@ -1255,9 +1305,10 @@ def sample_got_v2(aux_probability: Dict) -> operations.GraphOfOperations:
     keep_bestALL = operations.KeepBestN(1, True)
     keep_bestALL.add_predecessor(scoreGen)
     if sample_agg_keys:
-        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        # scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v3)
+        scoreAgg = operations.Score(1, True, utils.combined_score_auto_metric_v2_test_only_bleurt)
         for agg_key in sample_agg_keys:
-            agg = operations.Aggregate(num_merges=len(agg_key))
+            agg = operations.Aggregate(num_merges=len(agg_key), langs=agg_key)
             for key in agg_key:
                 gen_op = gen_operations[key]
                 agg.add_predecessor(gen_op)
@@ -1477,6 +1528,7 @@ def multi_threads_train(
                 "original": "",
                 "previous": "",
                 "current": "",
+                "other_results": [],
                 "method": method.__name__,
                 "data_path": data_path,
                 "results_path": os.path.join(os.path.dirname(__file__), folder_name),
@@ -1544,6 +1596,7 @@ def multi_threads_train(
             "original": deepcopy(state["original"]),
             "previous": deepcopy(state["previous"]),
             "current": deepcopy(state["current"]),
+            "other_results": deepcopy(state["other_results"]),
             "method": state["method"],
             "data_path": state["data_path"],
             "results_path": state["results_path"],
@@ -1984,7 +2037,7 @@ def multi_threads_test(
         "previous": "",
         "current": "",
         "other_results": [],
-        "method": method.__name__,
+        "method": method,
         "data_path": data_path,
         "results_path": os.path.join(os.path.dirname(__file__), folder_name),
         "prompt_path": os.path.join(os.path.dirname(__file__), folder_name, method.__name__),
@@ -2059,7 +2112,7 @@ def multi_threads_test(
         }
         thread_ops_graph = deepcopy(operations_graph)
         t = threading.Thread(target=test, args=(lm_name, api_key_list, start_index, end_index, data,
-                                                method, thread_ops_graph, thread_state, refine_results, unchanged_num,
+                                                method, aux_probability, thread_ops_graph, thread_state, refine_results, unchanged_num,
                                                  lock, total_api_key_num, total_cost, budget))
         threads.append(t)
         t.start()
@@ -2075,14 +2128,14 @@ def multi_threads_test(
         for result in refine_outputs:
             f.write(result + '\n')
     # metrics
-    try:
-        # utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, comet_model, refine_outputs, data,
-        #                                   got_refine_eval)
-        utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, refine_outputs, data,
-                                          got_refine_eval)
-    except Exception as e:
-        logging.error(f"Exception: {e}")
-        logging.warning(f"Failed to evaluate got refine results.")
+    # try:
+    #     # utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, comet_model, refine_outputs, data,
+    #     #                                   got_refine_eval)
+    #     utils.evaluate_got_refine_results(bleurt_model, bleurt_tokenizer, refine_outputs, data,
+    #                                       got_refine_eval)
+    # except Exception as e:
+    #     logging.error(f"Exception: {e}")
+    #     logging.warning(f"Failed to evaluate got refine results.")
 
     logging.info(f"Unchanged ratio: {unchanged_num / len(refine_outputs)}")
 
@@ -2107,6 +2160,7 @@ def test(
         end_index: int,
         data: List[Any],
         method: Callable[..., operations.GraphOfOperations],
+        aux_probability: Dict,
         operations_graph: operations.GraphOfOperations,
         state: Dict,
         refine_results: OrderedDict,
@@ -2127,6 +2181,8 @@ def test(
         if refine_results.get(item):
             item += 1
             continue
+        if method.__name__ == 'sample_got_test_v2_aux_random':
+            operations_graph = method(aux_probability)
         state["original"] = data[item]
         state["previous"] = ""
         state["current"] = ""
@@ -2180,14 +2236,18 @@ def test(
                 else:
                     refine_results[item] = data[item][2]
                 unchanged_num += 1
-
+        last_operation = executor.graph.leaves[-1]
+        previous_thoughts = last_operation.get_previous_thoughts()
+        previous_states = [thought.state for thought in previous_thoughts]
+        all_gens_res = {}
+        for i, state in enumerate(previous_states):
+            all_gens_res[state['aux_lang'][0]] = state['current'][2]
         # save temp results
         temp_res = {
             "source": data[item][1],
             "reference": data[item][3],
             "output": refine_results[item],
-
-
+            "all_gens": all_gens_res,
         }
         temp_res_json = json.dumps(temp_res, indent=2)
         f = open(os.path.join(state['results_path'], f'{item}'), 'w', encoding='utf8')
@@ -2730,8 +2790,11 @@ if __name__ == "__main__":
     budget = 1000
 
     only_agg_test_langs = ["gu", "kk", "lv", "ne", "si"]
+    gt_only_agg_test_langs = ["lv", "ne", "si"]
     only_gen_test_langs = ["kk", "lv", "ne", "si"]
+    gt_only_gen_test_langs = ["et", "gu", "kk", "lv", "ne", "si"]
     select_random_test_langs = ["et", "gu", "kk", "lv", "ne", "si"]
+    aux_random_test_langs = ["et", "gu", "kk", "lv", "ne", "si"]
     fixed_probs_test_langs = ["et", "gu", "kk", "lv", "ne", "si"]
     direct_test_langs = ["kk"]
     # test_langs = ["si"]
@@ -2748,6 +2811,7 @@ if __name__ == "__main__":
     test_only_gen_approaches = [sample_got_test_v2_only_gen]
     test_only_agg_approaches = [sample_got_test_v2_only_agg]
     test_select_random_approaches = [sample_got_test_v2_select_random]
+    test_aux_random_approaches = [sample_got_test_v2_aux_random]
     test_fixed_probs_approaches = [sample_got_test_v2_fixed_probs]
     trans_approaches = [direct_trans_got]
     refine_approaches = [direct_refine_got]
@@ -2784,14 +2848,14 @@ if __name__ == "__main__":
         "gu": None,
         "kk": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/kk2en/test/chatgpt-super_sample_got_test_v2_only_gen_2024-02-06_09-55-10",
         "lv": None,
-        "ne": None,
-        "si": None,
+        "ne": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/ne2en/test/chatgpt-super_sample_got_test_v2_only_gen_2024-02-08_10-06-27",
+        "si": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/si2en/test/chatgpt-super_sample_got_test_v2_only_gen_2024-02-08_12-32-12",
     }
     test_only_agg_output_from_file_dict = {
         "et": None,
         "gu": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/gu2en/test/chatgpt-super_sample_got_test_v2_only_agg_2024-02-06_16-15-15",
-        "kk": None,
-        "lv": None,
+        "kk": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/kk2en/test/chatgpt-super_sample_got_test_v2_only_agg_2024-02-08_10-16-29",
+        "lv": "/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/lv2en/test/chatgpt-super_sample_got_test_v2_only_agg_2024-02-08_12-43-49",
         "ne": None,
         "si": None,
     }
@@ -2863,8 +2927,11 @@ if __name__ == "__main__":
 
     # for test_lang in test_langs:
     # for test_lang in only_gen_test_langs:
+    # for test_lang in gt_only_gen_test_langs:
     # for test_lang in only_agg_test_langs:
+    # for test_lang in gt_only_agg_test_langs:
     # for test_lang in select_random_test_langs:
+    # for test_lang in aux_random_test_langs:
     # for test_lang in fixed_probs_test_langs:
     # for test_lang in direct_test_langs:
     # for train_lang in train_langs:
@@ -2902,7 +2969,6 @@ if __name__ == "__main__":
         #                            threads_num=10,
         #                            opertions_graph_path=graph_path_dict[test_lang] + "/last_graph.json",
         #                            only_gen=True,
-        #                            output_from_file=test_only_gen_output_from_file_dict[test_lang],
         #                            )
         # budget -= spent
 
@@ -2925,6 +2991,12 @@ if __name__ == "__main__":
         #                            output_from_file=test_select_random_output_from_file_dict[test_lang],
         #                            )
 
+        # aux random
+        # spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_aux_random_approaches, budget,
+        #                            "chatgpt-super",
+        #                            threads_num=10,
+        #                            )
+
         # fixed probs
         # spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_fixed_probs_approaches, budget,
         #                            "chatgpt-super",
@@ -2938,11 +3010,16 @@ if __name__ == "__main__":
         # spent = multi_threads_direct_trans(test_lang, tgt, sorted_similarity, lang_map, trans_approaches, budget,
         #                             "chatgpt-super",
         #                             threads_num=10, )
-    test_lang = "et"
-    spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_approaches, budget,
-                               "chatgpt-super",
-                               threads_num=10,
-                               opertions_graph_path= graph_path_dict[test_lang]+"/last_graph.json",
-                               aux_probs_from_file=graph_path_dict[test_lang],)
+    # test_lang = "ne"
+    # for test_lang in ["et", "lv"]:
+    #     spent = multi_threads_test(test_lang, tgt, sorted_similarity, lang_map, test_approaches, budget,
+    #                                "chatgpt-super",
+    #                                threads_num=10,
+    #                                opertions_graph_path= graph_path_dict[test_lang]+"/last_graph.json",
+    #                                aux_probs_from_file=graph_path_dict[test_lang],)
 
+    test_lang = "kk"
+    folder_path = multi_threads_train(test_lang, tgt, sorted_similarity, lang_map, train_approaches, budget, "chatgpt-super",
+                                threads_num=10, lr=1, hard_indices=hard_indices, hard_few_shot=hard_few_shot[test_lang],
+                                )
     # utils.evaluate_from_file("chatgpt-super_sample_got_test_v2_2024-02-01_03-14-00", "et")

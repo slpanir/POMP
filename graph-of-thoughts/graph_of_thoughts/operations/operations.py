@@ -697,10 +697,11 @@ class Aggregate(Operation):
         # responses_bt = None
         # if base_state['original'][4] == '~!@#$%^&*()_+':
         # prompt_bt = prompter.generate_prompt_bt(**base_state)
-        prompt_bt = prompter.generate_prompt_bt(**previous_thought_states[0])
-        responses_bt = lm.get_response_texts(
-            lm.query(prompt_bt, num_responses=self.num_responses)
-        )
+        responses_bt = None
+        # prompt_bt = prompter.generate_prompt_bt(**previous_thought_states[0])
+        # responses_bt = lm.get_response_texts(
+        #     lm.query(prompt_bt, num_responses=self.num_responses)
+        # )
 
         self.logger.debug("Prompt for LM: %s", prompt)
 
