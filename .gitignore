@@ -171,6 +171,7 @@ graph-of-thoughts/examples/translation_refine/comet-da/
 
 keys.txt
 keys2.txt
+jsd_token_id.png
 
 models/
 nvidia_cuda_nvrtc_cu12-12.2.140-py3-none-manylinux1_x86_64.whl

@@ -1,4 +1,6 @@
 import json
+import random
+
 import sentencepiece as spm
 from collections import Counter
 import numpy as np
@@ -69,19 +71,27 @@ def read_file(file_path, is_json=False):
 def convert_counters_to_numeric(counters):
     numeric_distributions = []
     for counter in counters:
-        numeric_distribution = [item for sublist in [([token] * freq) for token, freq in counter.items()] for item in
-                                sublist]
-        numeric_distributions.append(numeric_distribution)
+        # 对于已经是Counter对象的情况，直接处理
+        if isinstance(counter, Counter):
+            numeric_distribution = [item for token_id, freq in counter.items() for item in [token_id] * freq]
+            numeric_distributions.append(numeric_distribution)
+        elif isinstance(counter, list) and all(isinstance(subcounter, Counter) for subcounter in counter):
+            # 对于包含Counter对象的列表（嵌套的gen数据），合并处理
+            merged_distribution = []
+            for subcounter in counter:
+                merged_distribution.extend(
+                    [item for token_id, freq in subcounter.items() for item in [token_id] * freq])
+            numeric_distributions.append(merged_distribution)
     return numeric_distributions
 
 
 # 绘制KDE图
-def plot_kde_distributions(numeric_distributions, labels, save_path):
+def plot_kde_distributions(numeric_distributions, labels, save_path, lang):
     plt.figure(figsize=(10, 7))
     for distribution, label in zip(numeric_distributions, labels):
         sns.kdeplot(distribution, bw_adjust=0.5, label=label)
     plt.legend()
-    plt.title('KDE of Token Distributions')
+    plt.title(f'Token Distributions of {lang}')
     plt.xlabel('Token ID')
     plt.ylabel('Density')
     plt.xticks([])
@@ -90,9 +100,18 @@ def plot_kde_distributions(numeric_distributions, labels, save_path):
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.show()
 
+def plot_kde_distributions_subplot(ax, numeric_distributions, labels, lang, legend_fontsize='large', title_fontsize='x-large', label_fontsize='large'):
+    for distribution, label in zip(numeric_distributions, labels):
+        sns.kdeplot(distribution, bw_adjust=0.5, label=label, ax=ax)
+    ax.set_title(f'Token Distributions of {langs_dict[lang]}', fontsize=title_fontsize)
+    ax.set_xlabel('Token ID', fontsize=label_fontsize)
+    ax.set_ylabel('Density', fontsize=label_fontsize)
+    ax.legend(fontsize=legend_fontsize)
+    ax.set_xticks([])
+    ax.set_yticks([])
 
 # 主流程
-def main(samples_dir, refine_path, ref_path):
+def main(samples_dir, refine_path, ref_path, lang, axs):
     # 读取和预处理数据
     refine_texts = tokenize_texts(read_file(refine_path))
     ref_texts = tokenize_texts(read_file(ref_path))
@@ -110,14 +129,18 @@ def main(samples_dir, refine_path, ref_path):
     gen_texts = []
     for file_path in sample_files:
         data = read_file(file_path, is_json=True)
-        for text in data['all_gens'].values():
-            gen_texts.extend(tokenize_texts(text))
+        text = random.choices(list(data['all_gens'].values()))[0]
+        gen_texts.extend(tokenize_texts(text))
+        # for text in data['all_gens'].values():
+        #     gen_texts.extend(tokenize_texts(text))
     gen_counters = [count_tokens(text, token_to_id) for text in gen_texts]
+      # 从gen_counters中随机选择1000个Counter对象
 
     # 处理refine和ref数据
     refine_counters = count_tokens(refine_texts, token_to_id)
     ref_counters = count_tokens(ref_texts, token_to_id)
 
+    # gen_counters = random.choices(gen_counters, k=int(np.mean([len(ref_counters), len(gen_counters)])))
     # 计算JSD散度
     gen_jsds = [calculate_jsd(counter, ref_counters) for counter in gen_counters]
     refine_jsd = calculate_jsd(refine_counters, ref_counters)
@@ -131,13 +154,32 @@ def main(samples_dir, refine_path, ref_path):
     # 绘制并保存KDE图
     numeric_distributions = convert_counters_to_numeric([gen_counters, [refine_counters], [ref_counters]])
     kde_save_path = os.path.join(samples_dir, 'kde_distribution.png')
-    plot_kde_distributions(numeric_distributions, ['Gen', 'Refine', 'Ref'], kde_save_path)
+    # plot_kde_distributions(numeric_distributions, ['1-auxiliary', 'POMP', 'Reference'], kde_save_path, lang)
+    plot_kde_distributions_subplot(axs[langs.index(lang)], numeric_distributions, ['1-auxiliary', 'POMP', 'Reference'], lang)
 
 
+# fig, axs = plt.subplots(2, 2, figsize=(20, 14))  # 2x2子图布局
+fig, axs = plt.subplots(4, 1, figsize=(10, 20))  # 2x2子图布局
+axs = axs.flatten()  # 将2x2网格扁平化为一维数组，以便迭代
 # 执行主流程
 langs = ["gu", "kk", "ne", "si"]
+langs_dict = {
+    "gu": "Gu",
+    "kk": "Kk",
+    "ne": "Ne",
+    "si": "Si"
+}
 for lang in langs:
     samples_dir = f'/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/jsd_only_gen/{lang}2en'
     refine_path = f'{samples_dir}/test_got_refine'
     ref_path = f'{samples_dir}/ref'
-    main(samples_dir, refine_path, ref_path)
+    main(samples_dir, refine_path, ref_path, lang, axs)
+plt.tight_layout()
+# 保存高质量图像
+save_path = '/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/jsd_only_gen/kde_distribution_combined_41_size.png'
+plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
+plt.show()
+# plt.show()
+# # save high quality figure
+# plt.savefig('/mnt/e/unmt/acl22-sixtp/graph-of-thoughts/examples/translation_refine/results/jsd_only_gen/kde_distribution.png', dpi=300, bbox_inches='tight')

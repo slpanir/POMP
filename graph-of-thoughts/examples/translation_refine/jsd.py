@@ -76,7 +76,7 @@ def plot_kde_distributions(numeric_distributions, labels):
     plt.legend()
     plt.title('KDE of Token Distributions')
     # plt.xlabel('Token Numeric Mapping')
-    plt.xlabel('Vocabulary')
+    plt.xlabel('Token frequency')
     plt.xticks([])
     plt.ylabel('Density')
     plt.yticks([])
@@ -139,7 +139,7 @@ def main(samples_dir, refine_path, ref_path):
     numeric_distributions = convert_counters_to_numeric([gen_counters, refine_counters, ref_counters], vocab_mapping)
 
     # 绘制KDE图
-    plot_kde_distributions(numeric_distributions, ['Gen', 'Refine', 'Ref'])
+    plot_kde_distributions(numeric_distributions, ['1-auxiliary', 'POMP', 'Reference'])
     # save high quality figure
     plt.savefig(os.path.join(samples_dir, 'kde.png'), dpi=300, bbox_inches='tight')
 
